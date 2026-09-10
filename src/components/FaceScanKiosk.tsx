@@ -31,6 +31,7 @@ import {
   autoIdentifyFaceFromCamera,
   extractBiometricFromImage,
   createBiometricProfile,
+  validateFacePhoto,
   FaceMatchResult
 } from '../lib/faceDetector';
 
@@ -227,6 +228,14 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
     setIsEnrolling(true);
 
     try {
+      // Validate face photo strictly against hand covering / occlusion
+      const validation = await validateFacePhoto(snapshot);
+      if (!validation.valid || validation.isHandCoveringFace || !validation.hasFace) {
+        setIsEnrolling(false);
+        alert(`❌ ตรวจไม่ผ่าน: ${validation.reason || 'ตรวจพบมือปิดบังใบหน้า หรือใบหน้าไม่ชัดเจน กรุณาเอามือออกจากใบหน้า เปิดเผยดวงตาทั้งสองข้าง จมูก และปากให้ครบถ้วนก่อนบันทึก'}`);
+        return;
+      }
+
       // Extract biometric vector immediately so both AI and client matching work instantly
       const bio = await extractBiometricFromImage(snapshot);
       const bioProfile = createBiometricProfile(bio, 'ผู้ใช้งานลงทะเบียนด้วยกล้องจริง (Self-Enrollment)', true);
@@ -263,6 +272,20 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
     if (!snapshotUrl) {
       setIsScanning(false);
       alert('กรุณาเปิดกล้องเว็บแคมและมองตรงมาที่เลนส์เพื่อสแกนใบหน้า');
+      return;
+    }
+
+    // Strict pre-scan face validation to block hands and occlusions
+    const faceValidation = await validateFacePhoto(snapshotUrl);
+    if (!faceValidation.valid || faceValidation.isHandCoveringFace || !faceValidation.hasFace) {
+      playScanAudio(false);
+      setLastScanResult({
+        success: false,
+        message: `⚠️ ตรวจไม่ผ่าน: ${faceValidation.reason || 'ตรวจพบมือปิดบังใบหน้า! กรุณาเอามือออกจากใบหน้าให้เห็นใบหน้าชัดเจนก่อนสแกน'}`,
+        timestamp: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        snapshotUrl,
+      });
+      setIsScanning(false);
       return;
     }
 

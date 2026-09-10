@@ -216,6 +216,129 @@ app.post('/api/verify-face', async (req, res) => {
   }
 });
 
+// AI Face Quality, Hand Coverage & Anti-Spoofing Validation Endpoint
+app.post('/api/validate-face-photo', async (req, res) => {
+  try {
+    const { photoUrl } = req.body;
+    if (!photoUrl) {
+      return res.status(400).json({
+        valid: false,
+        hasFace: false,
+        isHandCoveringFace: false,
+        reason: 'ไม่พบข้อมูลภาพถ่าย'
+      });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.json({
+        valid: true,
+        fallbackToClient: true,
+        reason: 'GEMINI_API_KEY missing - delegating to client computer vision'
+      });
+    }
+
+    const imgData = await getImageBase64AndMime(photoUrl);
+    if (!imgData) {
+      return res.json({
+        valid: false,
+        fallbackToClient: true,
+        reason: 'ไม่สามารถโหลดรูปภาพได้'
+      });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const promptText = `คุณคือระบบตรวจจับใบหน้าและตรวจจับการบดบังใบหน้า (Facial Occlusion & Anti-Cheat Validator) สำหรับระบบสแกนใบหน้าลงเวลาทำงาน
+
+โปรดวิเคราะห์ภาพนี้อย่างเคร่งครัดสูงสุด:
+1. ภาพนี้มี "ใบหน้ามนุษย์จริง" ที่มองตรงมาที่กล้องหรือไม่?
+2. มี "มือ", "นิ้วมือ", "ฝ่ามือ", หรือสิ่งของใดๆ ปิดบังใบหน้า (Hand covering face / Palm touching face / Fingers over eyes, nose, or mouth) หรือไม่?
+3. มีการสวมหน้ากากอนามัย, แว่นตาดำ, หรือสิ่งปิดบังดวงตาทั้งสองข้าง จมูก หรือปากหรือไม่?
+
+กฎการตัดสิน:
+- หากตรวจพบว่ามีมือ ฝ่ามือ หรือนิ้วมือมาปิดหน้า บังตา บังปาก หรือบังจมูก -> ต้องตอบ "valid": false, "isHandCoveringFace": true, "hasFace": false และระบุ reason: "ตรวจพบมือปิดบังใบหน้า กรุณาเอามือออกจากใบหน้า เปิดเผยดวงตาทั้งสองข้าง จมูก และปากให้ชัดเจน" อย่างเด็ดขาด!
+- หากไม่มีใบหน้ามนุษย์ (เช่น ถ่ายเพดาน มือเปล่า กำแพง วัตถุ) -> ต้องตอบ "valid": false, "hasFace": false, "reason": "ไม่พบใบหน้ามนุษย์ กรุณาจัดใบหน้าให้อยู่ในกรอบภาพ"
+- หากใบหน้าเปิดเผยชัดเจน เห็นตาทั้งสองข้าง จมูก และปากครบถ้วน ไม่มีมือหรือสิ่งบดบัง -> ตอบ "valid": true, "isHandCoveringFace": false, "hasFace": true, "reason": "ใบหน้าชัดเจน ไม่มีสิ่งบดบัง พร้อมใช้งาน"
+
+ตอบกลับในรูปแบบ JSON เท่านั้น:
+{
+  "valid": boolean,
+  "hasFace": boolean,
+  "isHandCoveringFace": boolean,
+  "eyesVisible": boolean,
+  "mouthVisible": boolean,
+  "noseVisible": boolean,
+  "confidence": number,
+  "reason": string
+}`;
+
+    const contentParts = [
+      {
+        inlineData: {
+          mimeType: imgData.mimeType,
+          data: imgData.data
+        }
+      },
+      promptText
+    ];
+
+    let responseText = '';
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: contentParts,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+      responseText = response.text || '';
+    } catch (primaryErr) {
+      try {
+        const fallbackResponse = await ai.models.generateContent({
+          model: 'gemini-flash-latest',
+          contents: contentParts,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        });
+        responseText = fallbackResponse.text || '';
+      } catch (fallbackErr) {
+        return res.json({
+          valid: true,
+          fallbackToClient: true,
+          reason: 'Gemini AI unavailable, using client-side vision'
+        });
+      }
+    }
+
+    let parsedResult = {
+      valid: false,
+      hasFace: false,
+      isHandCoveringFace: false,
+      reason: 'ไม่สามารถประมวลผลการตรวจสอบได้'
+    };
+
+    try {
+      let cleanText = responseText.trim();
+      if (cleanText.startsWith('```')) {
+        cleanText = cleanText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      }
+      parsedResult = JSON.parse(cleanText);
+    } catch {
+      console.warn('Could not parse Gemini validate JSON response:', responseText);
+    }
+
+    return res.json(parsedResult);
+  } catch (err: any) {
+    console.error('API /api/validate-face-photo error:', err);
+    return res.status(200).json({
+      valid: true,
+      fallbackToClient: true,
+      reason: 'Validation server error, fallback to client'
+    });
+  }
+});
+
 async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

@@ -27,13 +27,16 @@ import {
   Compass,
   Globe,
   Navigation,
-  Fingerprint
+  Fingerprint,
+  Loader2
 } from 'lucide-react';
 import { Employee, WageType } from '../types';
 import { addEmployee, updateEmployee, getCompanySettings } from '../lib/storage';
 import { formatCurrency } from '../lib/thaiBahtText';
 import { StrictFaceRegistrationModal } from './StrictFaceRegistrationModal';
 import { BiometricProfileModal } from './BiometricProfileModal';
+import { validateFacePhoto, extractBiometricFromImage, createBiometricProfile } from '../lib/faceDetector';
+import { encryptBiometricDescriptor } from '../lib/biometricCrypto';
 
 interface EmployeeManagementProps {
   employees: Employee[];
@@ -90,8 +93,10 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
     setFaceCameraTarget(null);
   };
 
-  const captureFaceSnapshot = () => {
-    if (!cameraVideoRef.current) return;
+  const [isValidatingCameraPhoto, setIsValidatingCameraPhoto] = useState<boolean>(false);
+
+  const captureFaceSnapshot = async () => {
+    if (!cameraVideoRef.current || isValidatingCameraPhoto) return;
     const canvas = document.createElement('canvas');
     canvas.width = cameraVideoRef.current.videoWidth || 640;
     canvas.height = cameraVideoRef.current.videoHeight || 480;
@@ -100,15 +105,53 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
     ctx.drawImage(cameraVideoRef.current, 0, 0, canvas.width, canvas.height);
     const snapUrl = canvas.toDataURL('image/jpeg', 0.9);
 
-    if (faceCameraTarget === 'new') {
-      setPhotoUrl(snapUrl);
-    } else if (faceCameraTarget === 'edit' && editingEmployee) {
-      setEditingEmployee({ ...editingEmployee, photoUrl: snapUrl });
-    } else if (typeof faceCameraTarget === 'object' && faceCameraTarget !== null) {
-      const updatedEmp = { ...faceCameraTarget, photoUrl: snapUrl };
-      updateEmployee(updatedEmp);
+    setIsValidatingCameraPhoto(true);
+    setFaceCameraError(null);
+
+    try {
+      const validation = await validateFacePhoto(snapUrl);
+      if (!validation.valid || validation.isHandCoveringFace || !validation.hasFace) {
+        setIsValidatingCameraPhoto(false);
+        setFaceCameraError(`❌ ตรวจไม่ผ่าน: ${validation.reason || 'ตรวจพบมือปิดบังใบหน้า หรือไม่พบใบหน้ามนุษย์ที่เปิดเผยสมบูรณ์ กรุณาเอามือออกจากใบหน้าให้เห็นใบหน้าชัดเจนทั้งสองตา จมูก และปาก'}`);
+        return;
+      }
+
+      // Generate biometric profile and encrypted descriptors
+      const bio = await extractBiometricFromImage(snapUrl);
+      const bioProfile = createBiometricProfile(bio, 'ผู้ดูแลระบบถ่ายภาพจากกล้อง (Admin Capture)', true);
+      const enc = await encryptBiometricDescriptor(bio.vector);
+      bioProfile.descriptorHash = enc.descriptorHash;
+      bioProfile.encryptedDescriptor = enc.encryptedDescriptor;
+      bioProfile.secureBioHash = enc.secureBioHash;
+
+      if (faceCameraTarget === 'new') {
+        setPhotoUrl(snapUrl);
+      } else if (faceCameraTarget === 'edit' && editingEmployee) {
+        setEditingEmployee({
+          ...editingEmployee,
+          photoUrl: snapUrl,
+          faceDescriptor: bio.vector,
+          faceDescriptorHash: enc.descriptorHash,
+          encryptedFaceDescriptor: enc.encryptedDescriptor,
+          biometricProfile: bioProfile,
+        });
+      } else if (typeof faceCameraTarget === 'object' && faceCameraTarget !== null) {
+        const updatedEmp: Employee = {
+          ...faceCameraTarget,
+          photoUrl: snapUrl,
+          faceDescriptor: bio.vector,
+          faceDescriptorHash: enc.descriptorHash,
+          encryptedFaceDescriptor: enc.encryptedDescriptor,
+          biometricProfile: bioProfile,
+        };
+        updateEmployee(updatedEmp);
+      }
+      setIsValidatingCameraPhoto(false);
+      stopFaceCamera();
+    } catch (err: any) {
+      setIsValidatingCameraPhoto(false);
+      setFaceCameraError('เกิดข้อผิดพลาดในการตรวจสอบคุณภาพภาพถ่าย กรุณาลองใหม่อีกครั้ง');
     }
-    stopFaceCamera();
   };
 
   React.useEffect(() => {
@@ -154,13 +197,28 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
   const [photoUrl, setPhotoUrl] = useState<string>(
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80'
   );
+  const [isPhotoUploading, setIsPhotoUploading] = useState<boolean>(false);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoUrl(reader.result as string);
+      reader.onloadend = async () => {
+        const dataUrl = reader.result as string;
+        setIsPhotoUploading(true);
+        try {
+          const validation = await validateFacePhoto(dataUrl);
+          if (!validation.valid || validation.isHandCoveringFace || !validation.hasFace) {
+            setIsPhotoUploading(false);
+            alert(`❌ ภาพนี้ตรวจไม่ผ่าน: ${validation.reason || 'ตรวจพบมือปิดบังใบหน้า หรือไม่พบใบหน้ามนุษย์ที่เปิดเผยสมบูรณ์ กรุณาเลือกภาพที่เห็นใบหน้าเต็มชัดเจน'}`);
+            return;
+          }
+          setPhotoUrl(dataUrl);
+        } catch {
+          setPhotoUrl(dataUrl);
+        } finally {
+          setIsPhotoUploading(false);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -1446,11 +1504,20 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
               <button
                 type="button"
                 onClick={captureFaceSnapshot}
-                disabled={!!faceCameraError}
+                disabled={isValidatingCameraPhoto}
                 className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
               >
-                <Camera className="w-4 h-4" />
-                <span>ถ่ายภาพและบันทึก</span>
+                {isValidatingCameraPhoto ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>กำลังตรวจสอบชีวมิติ...</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera className="w-4 h-4" />
+                    <span>ถ่ายภาพและบันทึก</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

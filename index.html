@@ -4,14 +4,54 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MK FaceTimePay - ระบบสแกนหน้าเข้างานและคิดเงินเดือน</title>
-    <meta name="description" content="ระบบสแกนใบหน้าบันทึกเวลาเข้า-ออกงาน จัดเก็บคุณลักษณะชีวมิติเรขาคณิตใบหน้า (Biometric Profile) พร้อมระบบล็อคอัตลักษณ์ป้องกันการสแกนแทนกัน คำนวณเวลาทำงานและเงินเดือนอัตโนมัติ ออกสลิปเงินเดือน PDF" />
+    <meta name="description" content="ระบบสแกนใบหน้าบันทึกเวลาเข้า-ออกงาน จัดเก็บคุณลักษณะชีวมิติเรขาคณิตใบหน้าเป็นแฮชเข้ารหัส (Encrypted Biometric Hash) ป้องกันการสแกนแทนและคุ้มครองความเป็นส่วนตัวตามมาตรฐาน PDPA พร้อมคำนวณเงินเดือนอัตโนมัติและออกสลิปเงินเดือน" />
     <meta property="og:title" content="MK FaceTimePay - ระบบสแกนหน้าเข้างานและคิดเงินเดือน" />
-    <meta property="og:description" content="ระบบสแกนใบหน้าบันทึกเวลาเข้า-ออกงาน จัดเก็บคุณลักษณะชีวมิติเรขาคณิตใบหน้า (Biometric Profile) พร้อมระบบล็อคอัตลักษณ์ป้องกันการสแกนแทนกัน คำนวณเวลาทำงานและเงินเดือนอัตโนมัติ ออกสลิปเงินเดือน PDF" />
+    <meta property="og:description" content="ระบบสแกนใบหน้าบันทึกเวลาเข้า-ออกงาน จัดเก็บคุณลักษณะชีวมิติเรขาคณิตใบหน้าเป็นแฮชเข้ารหัส (Encrypted Biometric Hash) ป้องกันการสแกนแทนและคุ้มครองความเป็นส่วนตัวตามมาตรฐาน PDPA พร้อมคำนวณเงินเดือนอัตโนมัติและออกสลิปเงินเดือน" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        // Intercept and suppress benign Vite dev-server HMR websocket messages
+        window.addEventListener('unhandledrejection', function(event) {
+          var str = String(event.reason && (event.reason.message || event.reason) || '');
+          if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          var str = String(event.message || '');
+          if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        var originalConsoleError = console.error;
+        console.error = function() {
+          var args = Array.prototype.slice.call(arguments);
+          var fullText = args.map(function(a) { return String(a && (a.message || a) || ''); }).join(' ');
+          if (fullText.indexOf('WebSocket') !== -1 || fullText.indexOf('websocket') !== -1 || fullText.indexOf('[vite] failed to connect') !== -1) {
+            return;
+          }
+          originalConsoleError.apply(console, arguments);
+        };
+
+        var originalConsoleWarn = console.warn;
+        console.warn = function() {
+          var args = Array.prototype.slice.call(arguments);
+          var fullText = args.map(function(a) { return String(a && (a.message || a) || ''); }).join(' ');
+          if (fullText.indexOf('WebSocket') !== -1 || fullText.indexOf('websocket') !== -1 || fullText.indexOf('[vite] failed to connect') !== -1) {
+            return;
+          }
+          originalConsoleWarn.apply(console, arguments);
+        };
+      })();
+    </script>
   </head>
   <body class="bg-slate-50 text-slate-800 font-['Sarabun',sans-serif] antialiased">
     <div id="root"></div>

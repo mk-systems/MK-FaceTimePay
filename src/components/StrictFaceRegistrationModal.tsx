@@ -19,7 +19,8 @@ import {
 } from 'lucide-react';
 import { Employee } from '../types';
 import { updateEmployee } from '../lib/storage';
-import { extractBiometricFromImage, createBiometricProfile } from '../lib/faceDetector';
+import { extractBiometricFromImage, createBiometricProfile, validateFacePhoto } from '../lib/faceDetector';
+import { encryptBiometricDescriptor } from '../lib/biometricCrypto';
 
 interface StrictFaceRegistrationModalProps {
   isOpen: boolean;
@@ -162,7 +163,11 @@ export const StrictFaceRegistrationModal: React.FC<StrictFaceRegistrationModalPr
       const frameUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
 
       const bio = await extractBiometricFromImage(frameUrl);
-      if (bio.hasFace && bio.qualityScore >= 55) {
+      if (bio.isHandCoveringFace) {
+        setFaceDetected(false);
+        setQualityScore(0);
+        setQualityMsg(`🚫 ตรวจพบมือปิดบังใบหน้า! กรุณาเอามือออกให้เห็นใบหน้าชัดเจน`);
+      } else if (bio.hasFace && bio.qualityScore >= 55) {
         setFaceDetected(true);
         setQualityScore(bio.qualityScore);
         if (step === 1) {
@@ -175,7 +180,7 @@ export const StrictFaceRegistrationModal: React.FC<StrictFaceRegistrationModalPr
       } else {
         setFaceDetected(false);
         setQualityScore(bio.qualityScore || 0);
-        setQualityMsg('⚠️ กรุณาจัดใบให้อยู่ในกรอบรูปไข่ และอยู่ในบริเวณที่มีแสงสว่างพอ');
+        setQualityMsg(bio.occlusionReason || '⚠️ กรุณาจัดใบให้อยู่ในกรอบรูปไข่ และอยู่ในบริเวณที่มีแสงสว่างพอ');
       }
     }, 450);
 
@@ -204,11 +209,11 @@ export const StrictFaceRegistrationModal: React.FC<StrictFaceRegistrationModalPr
     if (!snap) return;
 
     setIsProcessing(true);
-    const bio = await extractBiometricFromImage(snap);
+    const validation = await validateFacePhoto(snap);
     setIsProcessing(false);
 
-    if (!bio.hasFace) {
-      alert('❌ ไม่พบใบหน้าหรือแสงสว่างไม่พอ กรุณามองตรงไปที่กล้องแล้วลองใหม่อีกครั้ง');
+    if (!validation.valid || validation.isHandCoveringFace || !validation.hasFace) {
+      alert(`❌ ตรวจไม่ผ่าน: ${validation.reason || 'ตรวจพบมือปิดบังใบหน้า หรือใบหน้าไม่ชัดเจน กรุณาเอามือออกจากใบหน้า เปิดเผยดวงตาทั้งสองข้าง จมูก และปากให้ครบถ้วนก่อนถ่ายภาพ'}`);
       return;
     }
 
@@ -239,9 +244,21 @@ export const StrictFaceRegistrationModal: React.FC<StrictFaceRegistrationModalPr
   // Step 3 Capture & Finalize Registration
   const handleCaptureStep3AndFinalize = async () => {
     const snap3 = captureCurrentFrame() || step1Photo;
+    if (!snap3) {
+      alert('เกิดข้อผิดพลาด ไม่พบภาพถ่าย');
+      return;
+    }
+
+    setIsProcessing(true);
+    const validation = await validateFacePhoto(snap3);
+    if (!validation.valid || validation.isHandCoveringFace || !validation.hasFace) {
+      setIsProcessing(false);
+      alert(`❌ ตรวจไม่ผ่าน: ${validation.reason || 'ตรวจพบมือปิดบังใบหน้า หรือใบหน้าไม่ชัดเจน กรุณาเปิดเผยใบหน้าให้เห็นชัดเจน'}`);
+      return;
+    }
+
     setStep3Photo(snap3);
     setStep(4);
-    setIsProcessing(true);
 
     const mainPhoto = step1Photo || snap3;
     if (!mainPhoto) {
@@ -254,13 +271,20 @@ export const StrictFaceRegistrationModal: React.FC<StrictFaceRegistrationModalPr
     // Extract Biometric Embedding and compute quality metrics
     const bio = await extractBiometricFromImage(mainPhoto);
     const bioProfile = createBiometricProfile(bio, 'ฝ่ายบุคคล HR / ตู้ลงทะเบียนชีวมิติ', true);
+    const enc = await encryptBiometricDescriptor(bio.vector);
+    bioProfile.descriptorHash = enc.descriptorHash;
+    bioProfile.encryptedDescriptor = enc.encryptedDescriptor;
+    bioProfile.secureBioHash = enc.secureBioHash;
 
     const nowISO = new Date().toISOString();
     const updatedEmp: Employee = {
       ...employee,
       photoUrl: mainPhoto,
       faceDescriptor: bio.vector,
+      faceDescriptorHash: enc.descriptorHash,
+      encryptedFaceDescriptor: enc.encryptedDescriptor,
       biometricProfile: bioProfile,
+      privacyMode: true,
       registeredAt: employee.registeredAt || nowISO,
     };
 

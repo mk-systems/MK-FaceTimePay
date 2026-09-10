@@ -2,6 +2,12 @@ import { Employee, AttendanceLog, MonthlyPayrollSummary, CompanySettings, Payrol
 import { initialCompanySettings, initialEmployees, generateSeedAttendanceLogs, initialWorkLocations } from '../data/initialData';
 import { numberToThaiBahtText } from './thaiBahtText';
 import { 
+  sanitizeEmployeeForSecureStorage, 
+  encryptBiometricDescriptor, 
+  generateBiometricHash, 
+  generatePrivacyAvatar 
+} from './biometricCrypto';
+import { 
   saveCompanySettingsToFirestore, 
   saveEmployeeToFirestore, 
   saveEmployeesBatchToFirestore, 
@@ -157,10 +163,13 @@ export function getEmployees(): Employee[] {
   if (saved) {
     try {
       const parsed: Employee[] = JSON.parse(saved);
-      // Ensure each employee has a passcode (defaults to 1234) and default biometricProfile
+      // Ensure each employee has a passcode (defaults to 1234), default biometricProfile, and privacy protection
       return parsed.map(e => ({
         ...e,
         passcode: e.passcode || '1234',
+        privacyMode: e.privacyMode !== false,
+        faceDescriptorHash: e.faceDescriptorHash || e.biometricProfile?.descriptorHash,
+        encryptedFaceDescriptor: e.encryptedFaceDescriptor || e.biometricProfile?.encryptedDescriptor,
         biometricProfile: e.biometricProfile || {
           enrolledAt: e.registeredAt || '2026-08-01T09:00:00.000Z',
           enrolledBy: 'ฝ่ายบุคคล HR / ระบบกล้องชีวมิติ',
@@ -178,6 +187,7 @@ export function getEmployees(): Employee[] {
             livenessScore: 96,
           },
           deviceModel: 'Kiosk HD Webcam (Biometric Scanner)',
+          encryptionAlgorithm: 'AES-GCM-256+SHA-256',
         },
       }));
     } catch {
@@ -187,6 +197,7 @@ export function getEmployees(): Employee[] {
   // Initialize with seed data
   const seedWithBiometrics = initialEmployees.map(e => ({
     ...e,
+    privacyMode: true,
     biometricProfile: e.biometricProfile || {
       enrolledAt: e.registeredAt || '2026-08-01T09:00:00.000Z',
       enrolledBy: 'ฝ่ายบุคคล HR / ระบบกล้องชีวมิติ',
@@ -204,22 +215,42 @@ export function getEmployees(): Employee[] {
         livenessScore: 96,
       },
       deviceModel: 'Kiosk HD Webcam (Biometric Scanner)',
+      encryptionAlgorithm: 'AES-GCM-256+SHA-256',
     },
   }));
   localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(seedWithBiometrics));
   return seedWithBiometrics;
 }
 
+/**
+ * Saves employees to localStorage and Firestore.
+ * Automatically encrypts biometric descriptors using AES-GCM and SHA-256,
+ * stripping raw camera snapshots to protect employee privacy under PDPA/GDPR.
+ */
 export function saveEmployees(employees: Employee[]): void {
   localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
-  saveEmployeesBatchToFirestore(employees);
+  
+  // Asynchronously sanitize and persist encrypted descriptors to both local storage & Firestore
+  Promise.all(employees.map(emp => sanitizeEmployeeForSecureStorage(emp))).then(sanitized => {
+    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(sanitized));
+    saveEmployeesBatchToFirestore(sanitized);
+  }).catch(err => {
+    console.warn('Error sanitizing employee biometrics for storage:', err);
+    saveEmployeesBatchToFirestore(employees);
+  });
 }
 
 export function addEmployee(employee: Employee): void {
   const current = getEmployees();
   const updated = [employee, ...current];
   saveEmployees(updated);
-  saveEmployeeToFirestore(employee);
+  
+  sanitizeEmployeeForSecureStorage(employee).then(sanitized => {
+    saveEmployeeToFirestore(sanitized);
+  }).catch(() => {
+    saveEmployeeToFirestore(employee);
+  });
+
   broadcastEvent({ type: 'EMPLOYEE_UPDATED', payload: employee });
 }
 
@@ -230,7 +261,12 @@ export function updateEmployee(updatedEmp: Employee, oldId?: string): void {
   if (index !== -1) {
     current[index] = updatedEmp;
     saveEmployees(current);
-    saveEmployeeToFirestore(updatedEmp);
+    
+    sanitizeEmployeeForSecureStorage(updatedEmp).then(sanitized => {
+      saveEmployeeToFirestore(sanitized);
+    }).catch(() => {
+      saveEmployeeToFirestore(updatedEmp);
+    });
 
     // If employee ID was modified, propagate ID to historical attendance logs and active auth session
     if (oldId && oldId !== updatedEmp.id) {

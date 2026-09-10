@@ -40,9 +40,14 @@ export interface BiometricProfile {
   isLocked: boolean;             // สถานะล็อคอัตลักษณ์ ป้องกันการสลับรูปเพื่อสแกนแทนกัน
   qualityScore: number;          // คะแนนคุณภาพข้อมูลชีวมิติ (0-100%)
   clarityScore: number;          // ความคมชัดของภาพชีวมิติ (0-100%)
-  vector: number[];              // เวกเตอร์ชีวมิติ 64 มิติ (Biometric Embedding)
+  vector: number[];              // เวกเตอร์ชีวมิติ 64 มิติ (Biometric Embedding ใน RAM)
   features: BiometricFacialFeatures; // รายละเอียดคุณลักษณะเรขาคณิตใบหน้า
   deviceModel?: string;          // อุปกรณ์ที่ใช้ลงทะเบียน
+  descriptorHash?: string;       // แฮชชีวมิติเข้ารหัส SHA-256 ปลอดภัยตาม PDPA/GDPR
+  encryptedDescriptor?: string;  // ซองข้อมูลชีวมิติเข้ารหัส AES-GCM-256
+  secureBioHash?: string;        // Locality-Sensitive BioHash สำหรับการเปรียบเทียบเชิงเรขาคณิต
+  isRawImageStripped?: boolean;  // ลบข้อมูลภาพดิบออกจากระบบจัดเก็บเพื่อคุ้มครองข้อมูลส่วนบุคคล
+  encryptionAlgorithm?: string;  // อัลกอริทึมการเข้ารหัส เช่น 'AES-GCM-256+SHA-256'
 }
 
 export interface Employee {
@@ -54,9 +59,12 @@ export interface Employee {
   email: string;          // e.g. "somchai@company.co.th"
   phone: string;
   idCard: string;         // เลขประจำตัวประชาชน 13 หลัก
-  photoUrl: string;       // Base64 or Image URL for Face Recognition
-  faceDescriptor?: number[]; // Biometric embedding vector
+  photoUrl: string;       // ภาพถ่ายอวาตาร์ หรือ URL (ภาพดิบถูกเปลี่ยนเป็น Privacy Token ป้องกันข้อมูลส่วนบุคคล)
+  faceDescriptor?: number[]; // Biometric embedding vector (in-memory)
+  faceDescriptorHash?: string; // แฮชเข้ารหัสของข้อมูลใบหน้า (SHA-256 Biometric Hash)
+  encryptedFaceDescriptor?: string; // เวกเตอร์ใบหน้าที่เข้ารหัส AES-GCM สำหรับจัดเก็บถาวร
   biometricProfile?: BiometricProfile; // ข้อมูลคุณลักษณะอัตลักษณ์ชีวมิติ
+  privacyMode?: boolean;  // โหมดความเป็นส่วนตัวสูง: เข้ารหัสชีวมิติและไม่จัดเก็บภาพดิบ
   wageType: WageType;     // รายเดือน, รายวัน, รายชั่วโมง
   baseSalary: number;     // อัตราจ้างพื้นฐาน (บาท)
   otRatePerHour: number;  // อัตราค่าล่วงเวลาต่อชั่วโมง
