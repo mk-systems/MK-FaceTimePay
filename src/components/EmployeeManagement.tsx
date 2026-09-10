@@ -31,6 +31,7 @@ import {
 import { Employee, WageType } from '../types';
 import { addEmployee, updateEmployee, getCompanySettings } from '../lib/storage';
 import { formatCurrency } from '../lib/thaiBahtText';
+import { StrictFaceRegistrationModal } from './StrictFaceRegistrationModal';
 
 interface EmployeeManagementProps {
   employees: Employee[];
@@ -41,6 +42,7 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
   const [showAddForm, setShowAddForm] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'monthly' | 'daily'>('all');
   const [search, setSearch] = useState('');
+  const [strictRegisterTarget, setStrictRegisterTarget] = useState<Employee | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -950,6 +952,15 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
                     <Camera className="w-3.5 h-3.5" />
                     <span>ถ่ายกล้องสด</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setStrictRegisterTarget(editingEmployee)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-xs cursor-pointer"
+                    title="ลงทะเบียนใบหน้าชีวมิติรัดกุม 3 ขั้นตอนป้องกันการสแกนแทนกัน"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>ลงทะเบียนมิติรัดกุม (Liveness)</span>
+                  </button>
                 </div>
               </div>
 
@@ -1423,6 +1434,22 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
           </div>
         </div>
       )}
+
+      {/* Strict Face Registration Modal for Admin */}
+      <StrictFaceRegistrationModal
+        isOpen={!!strictRegisterTarget}
+        onClose={() => setStrictRegisterTarget(null)}
+        employee={strictRegisterTarget}
+        requirePasscode={false}
+        onSuccess={(updatedEmp) => {
+          updateEmployee(updatedEmp);
+          if (editingEmployee && editingEmployee.id === updatedEmp.id) {
+            setEditingEmployee(updatedEmp);
+          }
+          setStrictRegisterTarget(null);
+          setEditSuccessMsg(`ลงทะเบียนใบหน้าชีวมิติมิติรัดกุมสำหรับ คุณ${updatedEmp.name} เรียบร้อยแล้ว`);
+        }}
+      />
     </div>
   );
 };

@@ -40,6 +40,7 @@ import { Employee, AttendanceLog, CompanySettings, MonthlyPayrollSummary, Attend
 import { recordAttendanceScan, calculateMonthlyPayroll, updateEmployee } from '../lib/storage';
 import { playScanAudio, verifyEmployeeFaceBiometric, calculateDistanceMeters, extractBiometricFromImage } from '../lib/faceDetector';
 import { useTheme } from '../lib/theme';
+import { StrictFaceRegistrationModal } from './StrictFaceRegistrationModal';
 
 interface EmployeePortalProps {
   employeeId: string;
@@ -64,6 +65,7 @@ export const EmployeePortal: React.FC<EmployeePortalProps> = ({
   // Tab: 'attendance' (default) or 'payslip'
   const [activeTab, setActiveTab] = useState<'attendance' | 'payslip'>('attendance');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showStrictRegisterModal, setShowStrictRegisterModal] = useState(false);
 
   // Time & Live Clock
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -781,6 +783,34 @@ export const EmployeePortal: React.FC<EmployeePortalProps> = ({
         {/* TAB 1: ATTENDANCE & PERSONAL FACE SCANNER */}
         {activeTab === 'attendance' && (
           <div className="space-y-6">
+            {/* Strict Face Registration Banner Callout */}
+            <div className="p-4 bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white rounded-3xl border border-emerald-700/60 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center space-x-3.5">
+                <div className="p-3 bg-emerald-500/20 rounded-2xl text-emerald-400 border border-emerald-500/30 shrink-0">
+                  <ShieldCheck className="w-7 h-7" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-emerald-400 flex items-center space-x-1.5">
+                    <span>{(currentEmp as any).faceLivenessVerified ? '✓ บัญชีนี้ผ่านการลงทะเบียนใบหน้าชีวมิติมิติรัดกุมแล้ว (Liveness Verified)' : '⚠️ แนะนำ: ลงทะเบียนใบหน้ามิติรัดกุม 3 ขั้นตอน'}</span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    {(currentEmp as any).faceLivenessVerified 
+                      ? `ลงทะเบียนใบหน้ามิติรัดกุมเรียบร้อยเมื่อ ${new Date((currentEmp as any).faceRegisteredAt || currentEmp.registeredAt).toLocaleDateString('th-TH')} (สามารถลงทะเบียนภาพใหม่ได้ตลอดเวลา)` 
+                      : 'ถ่ายภาพลงทะเบียนด้วยระบบ Liveness Detection 3 ขั้นตอน (หน้าตรง/กะพริบตา/ระยะโฟกัส) ป้องกันการแอบอ้างสแกนแทน 100%'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowStrictRegisterModal(true)}
+                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center space-x-2 shadow-lg transition-all shrink-0 cursor-pointer"
+              >
+                <ScanFace className="w-4 h-4" />
+                <span>{(currentEmp as any).faceLivenessVerified ? 'ถ่ายลงทะเบียนใบหน้าใหม่' : 'เริ่มลงทะเบียนใบหน้าทันที'}</span>
+              </button>
+            </div>
+
             {/* Top Grid: Scanner & Today's Shift Status */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: Personal Independent Face Scanner (lg:col-span-7) */}
@@ -1819,6 +1849,18 @@ export const EmployeePortal: React.FC<EmployeePortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Strict Face Registration Modal (3-Step Guided Liveness) */}
+      <StrictFaceRegistrationModal
+        isOpen={showStrictRegisterModal}
+        onClose={() => setShowStrictRegisterModal(false)}
+        employee={currentEmp}
+        requirePasscode={true}
+        onSuccess={(updated) => {
+          setShowStrictRegisterModal(false);
+          if (onRefreshData) onRefreshData();
+        }}
+      />
     </div>
   );
 };
