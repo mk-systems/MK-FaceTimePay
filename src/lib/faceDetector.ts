@@ -251,7 +251,49 @@ export async function verifyEmployeeFaceBiometric(
     };
   }
 
-  // Extract biometric descriptors
+  // 1. Try Gemini Vision Server API Verification
+  if (targetEmployee.photoUrl) {
+    try {
+      const resp = await fetch('/api/verify-face', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeName: targetEmployee.name,
+          masterPhoto: targetEmployee.photoUrl,
+          livePhoto: snapshotUrl
+        })
+      });
+
+      if (resp.ok) {
+        const result = await resp.json();
+        if (!result.fallbackToClient) {
+          if (result.matched) {
+            return {
+              matched: true,
+              employee: targetEmployee,
+              confidence: result.confidence || 98.5,
+              isApproved: true,
+              message: `สแกนใบหน้าสำเร็จ: ยืนยันตัวตน คุณ${targetEmployee.name} (${result.reasoning || 'โครงสร้างใบหน้าตรงกับต้นแบบ'})`,
+              snapshotDataUrl: snapshotUrl,
+            };
+          } else {
+            return {
+              matched: false,
+              employee: targetEmployee,
+              confidence: result.confidence || 20,
+              isApproved: true,
+              message: `⚠️ ตรวจไม่ผ่าน: ${result.reasoning || `ใบหน้าหน้ากล้องเป็นคนละคนกับคุณ [${targetEmployee.name}] ไม่อนุญาตให้สแกนแทนกัน!`}`,
+              snapshotDataUrl: snapshotUrl,
+            };
+          }
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Gemini AI Face Verification API call failed, using client fallback:', apiErr);
+    }
+  }
+
+  // 2. Client-Side Biometric Local Feature Vector Comparison
   const liveBio = await extractBiometricFromImage(snapshotUrl);
   if (!liveBio.hasFace) {
     return {
@@ -267,18 +309,22 @@ export async function verifyEmployeeFaceBiometric(
   // Get or extract target employee's master face vector
   let masterVector = targetEmployee.faceDescriptor;
   if (!masterVector || masterVector.length === 0) {
-    const masterBio = await extractBiometricFromImage(targetEmployee.photoUrl);
-    masterVector = masterBio.vector;
+    if (targetEmployee.photoUrl) {
+      const masterBio = await extractBiometricFromImage(targetEmployee.photoUrl);
+      if (masterBio.hasFace) {
+        masterVector = masterBio.vector;
+      }
+    }
   }
 
+  // STRICT REJECTION: If employee has no valid master photo or vector, DO NOT AUTO-APPROVE!
   if (!masterVector || masterVector.length === 0) {
-    // Fallback if master photo has not been indexed yet
     return {
-      matched: true,
+      matched: false,
       employee: targetEmployee,
-      confidence: 96.5,
+      confidence: 0,
       isApproved: true,
-      message: `ยืนยันใบหน้าสำเร็จ: คุณ${targetEmployee.name} (${targetEmployee.nickname})`,
+      message: `⚠️ ไม่พบภาพถ่ายใบหน้าต้นแบบของคุณ [${targetEmployee.name}] ในระบบ กรุณาลงทะเบียน/ถ่ายภาพใบหน้าจริงในระบบก่อนเริ่มสแกนเวลา`,
       snapshotDataUrl: snapshotUrl,
     };
   }
@@ -286,10 +332,9 @@ export async function verifyEmployeeFaceBiometric(
   // Compare similarity
   const sim = compareBiometricVectors(liveBio.vector, masterVector);
 
-  // Threshold: >= 0.82 is considered a positive match for the same person
-  // If someone else scans, similarity is typically 0.50 - 0.74
-  if (sim >= 0.82) {
-    const confidence = Math.min(99.4, Math.round((86 + (sim - 0.82) * 80) * 10) / 10);
+  // Threshold: >= 0.76 for client spatial vector
+  if (sim >= 0.76) {
+    const confidence = Math.min(99.4, Math.round((84 + (sim - 0.76) * 70) * 10) / 10);
     return {
       matched: true,
       employee: targetEmployee,
@@ -308,7 +353,7 @@ export async function verifyEmployeeFaceBiometric(
       confidence: simPercent,
       similarityScore: sim,
       isApproved: true,
-      message: `⚠️ ตรวจไม่ผ่าน: ใบหน้าไม่ตรงกับข้อมูลคุณ [${targetEmployee.name}] (ความคล้ายคลึงเพียง ${simPercent}%) ระบบไม่อนุญาตให้สแกนแทนกัน! กรุณาให้เจ้าของเครื่องเป็นผู้สแกนด้วยตนเอง`,
+      message: `⚠️ ตรวจไม่ผ่าน: ใบหน้าไม่ตรงกับข้อมูลคุณ [${targetEmployee.name}] (ความคล้ายคลึงเพียง ${simPercent}%) ระบบไม่อนุญาตให้สแกนแทนกัน!`,
       snapshotDataUrl: snapshotUrl,
     };
   }

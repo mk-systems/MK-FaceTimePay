@@ -37,8 +37,8 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { Employee, AttendanceLog, CompanySettings, MonthlyPayrollSummary, AttendanceType, AttendanceStatus } from '../types';
-import { recordAttendanceScan, calculateMonthlyPayroll } from '../lib/storage';
-import { playScanAudio, verifyEmployeeFaceBiometric, calculateDistanceMeters } from '../lib/faceDetector';
+import { recordAttendanceScan, calculateMonthlyPayroll, updateEmployee } from '../lib/storage';
+import { playScanAudio, verifyEmployeeFaceBiometric, calculateDistanceMeters, extractBiometricFromImage } from '../lib/faceDetector';
 import { useTheme } from '../lib/theme';
 
 interface EmployeePortalProps {
@@ -313,6 +313,41 @@ export const EmployeePortal: React.FC<EmployeePortalProps> = ({
       streamRef.current = null;
     }
     setCameraActive(false);
+  };
+
+  const handleRegisterFaceSnapshot = async () => {
+    if (!currentEmp) return;
+    if (!cameraActive || !videoRef.current || !canvasRef.current) {
+      alert('กรุณาเปิดกล้องเว็บแคมและมองตรงมาที่กล้องก่อนถ่ายภาพลงทะเบียนใบหน้า');
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 480;
+    canvas.height = video.videoHeight || 360;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const snapshotDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+    const bio = await extractBiometricFromImage(snapshotDataUrl);
+    if (!bio.hasFace) {
+      alert('❌ ไม่พบใบหน้าหรือแสงสว่างไม่เพียงพอ กรุณามองตรงไปที่กล้องในระยะ 40-60 ซม.');
+      return;
+    }
+
+    const updatedEmp: Employee = {
+      ...currentEmp,
+      photoUrl: snapshotDataUrl,
+      faceDescriptor: bio.vector
+    };
+
+    updateEmployee(updatedEmp);
+    alert(`ถ่ายภาพลงทะเบียนใบหน้าสำหรับ คุณ${currentEmp.name} สำเร็จแล้ว! ระบบจะใช้ภาพนี้ในการตรวจสอบสแกนใบหน้าป้องกันการสแกนแทนกัน`);
   };
 
   useEffect(() => {
@@ -790,13 +825,24 @@ export const EmployeePortal: React.FC<EmployeePortalProps> = ({
                     )}
 
                     {cameraActive ? (
-                      <button
-                        onClick={stopCamera}
-                        className="px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center space-x-1 cursor-pointer"
-                      >
-                        <CameraOff className="w-3.5 h-3.5" />
-                        <span>ปิดกล้อง</span>
-                      </button>
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={handleRegisterFaceSnapshot}
+                          className="px-2.5 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-center space-x-1 cursor-pointer shadow-2xs"
+                          title="ถ่ายภาพใบหน้าสดเพื่อใช้เป็นภาพต้นแบบในการยืนยันตัวตน"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>ถ่ายลงทะเบียนใบหน้า</span>
+                        </button>
+                        <button
+                          onClick={stopCamera}
+                          className="px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center space-x-1 cursor-pointer"
+                        >
+                          <CameraOff className="w-3.5 h-3.5" />
+                          <span>ปิดกล้อง</span>
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onClick={() => startCamera()}
