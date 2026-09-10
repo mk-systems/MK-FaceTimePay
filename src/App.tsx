@@ -44,7 +44,16 @@ export default function App() {
 
     const unsubscribe = subscribeToRealtimeUpdates((event) => {
       if (event.type === 'ATTENDANCE_LOGGED') {
-        setAttendanceLogs((prev) => [event.payload, ...prev]);
+        setAttendanceLogs((prev) => {
+          if (!event.payload || !event.payload.id) return prev;
+          const idx = prev.findIndex((l) => l.id === event.payload.id);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = event.payload;
+            return updated;
+          }
+          return [event.payload, ...prev];
+        });
       } else if (event.type === 'EMPLOYEE_UPDATED') {
         setEmployees(getEmployees());
       } else if (event.type === 'EMPLOYEE_APPROVED') {

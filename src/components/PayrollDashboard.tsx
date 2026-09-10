@@ -225,8 +225,8 @@ export const PayrollDashboard: React.FC<PayrollDashboardProps> = ({
                   </td>
                 </tr>
               ) : (
-                summary.records.map((rec) => (
-                  <tr key={rec.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                summary.records.map((rec, idx) => (
+                  <tr key={`${rec.id}-${idx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
                     <td className="px-4 py-3.5">
                       <div className="font-bold text-slate-900 dark:text-white">{rec.employeeName}</div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">{rec.department} ({rec.nickname})</div>

@@ -34,7 +34,7 @@ export const RealtimeAttendanceView: React.FC<RealtimeAttendanceViewProps> = ({
   const [previewPhotoLog, setPreviewPhotoLog] = useState<AttendanceLog | null>(null);
 
   // Filter logs based on date, department, search, and status
-  const filteredLogs = logs.filter((log) => {
+  const rawFilteredLogs = logs.filter((log) => {
     const matchDate = selectedDate ? log.date === selectedDate : true;
     const matchDept = selectedDept === 'all' ? true : log.department === selectedDept;
     const matchSearch = log.employeeName.toLowerCase().includes(search.toLowerCase()) ||
@@ -43,6 +43,16 @@ export const RealtimeAttendanceView: React.FC<RealtimeAttendanceViewProps> = ({
 
     return matchDate && matchDept && matchSearch && matchStatus;
   });
+
+  // Deduplicate logs by ID
+  const seenIds = new Set<string>();
+  const filteredLogs: AttendanceLog[] = [];
+  for (const log of rawFilteredLogs) {
+    if (log && log.id && !seenIds.has(log.id)) {
+      seenIds.add(log.id);
+      filteredLogs.push(log);
+    }
+  }
 
   // Calculate stats for selected date
   const dateLogs = logs.filter(l => l.date === selectedDate);
@@ -213,11 +223,11 @@ export const RealtimeAttendanceView: React.FC<RealtimeAttendanceViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log) => {
+                filteredLogs.map((log, idx) => {
                   const isCheckIn = log.type === 'check_in';
 
                   return (
-                    <tr key={log.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                    <tr key={`${log.id}-${idx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-4 py-3.5 font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
                         {log.time}
                         <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-normal">{log.date}</span>

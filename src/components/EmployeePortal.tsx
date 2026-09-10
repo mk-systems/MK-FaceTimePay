@@ -75,8 +75,16 @@ export const EmployeePortal: React.FC<EmployeePortalProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Filter logs for this employee
-  const myLogs = attendanceLogs.filter((l) => l.employeeId === currentEmp?.id);
+  // Filter logs for this employee and deduplicate by ID
+  const rawMyLogs = attendanceLogs.filter((l) => l.employeeId === currentEmp?.id);
+  const seenMyLogIds = new Set<string>();
+  const myLogs: AttendanceLog[] = [];
+  for (const log of rawMyLogs) {
+    if (log && log.id && !seenMyLogIds.has(log.id)) {
+      seenMyLogIds.add(log.id);
+      myLogs.push(log);
+    }
+  }
   const todayStr = currentTime.toISOString().split('T')[0];
   const todayLogs = myLogs.filter((l) => l.date === todayStr);
 
@@ -1317,9 +1325,9 @@ export const EmployeePortal: React.FC<EmployeePortalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {myLogs.map((log) => {
+                      {myLogs.map((log, idx) => {
                         return (
-                          <tr key={log.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
+                          <tr key={`${log.id}-${idx}`} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
                             <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200 font-mono">
                               {log.date}
                             </td>

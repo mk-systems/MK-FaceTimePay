@@ -260,7 +260,16 @@ export function getAttendanceLogs(): AttendanceLog[] {
   const saved = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
   if (saved) {
     try {
-      return JSON.parse(saved);
+      const parsed: AttendanceLog[] = JSON.parse(saved);
+      const seen = new Set<string>();
+      const uniqueLogs: AttendanceLog[] = [];
+      for (const log of parsed) {
+        if (log && log.id && !seen.has(log.id)) {
+          seen.add(log.id);
+          uniqueLogs.push(log);
+        }
+      }
+      return uniqueLogs;
     } catch {
       // ignore
     }
@@ -273,12 +282,27 @@ export function getAttendanceLogs(): AttendanceLog[] {
 }
 
 export function saveAttendanceLogs(logs: AttendanceLog[]): void {
-  localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(logs));
+  const seen = new Set<string>();
+  const uniqueLogs: AttendanceLog[] = [];
+  for (const log of logs) {
+    if (log && log.id && !seen.has(log.id)) {
+      seen.add(log.id);
+      uniqueLogs.push(log);
+    }
+  }
+  localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(uniqueLogs));
 }
 
 export function recordAttendanceScan(log: AttendanceLog): void {
   const current = getAttendanceLogs();
-  const updated = [log, ...current];
+  const existingIndex = current.findIndex(l => l.id === log.id);
+  let updated: AttendanceLog[];
+  if (existingIndex !== -1) {
+    current[existingIndex] = log;
+    updated = [...current];
+  } else {
+    updated = [log, ...current];
+  }
   saveAttendanceLogs(updated);
   saveAttendanceLogToFirestore(log);
   broadcastEvent({ type: 'ATTENDANCE_LOGGED', payload: log });

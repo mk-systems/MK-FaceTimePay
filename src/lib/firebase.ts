@@ -118,10 +118,14 @@ export async function syncAttendanceLogsFromFirestore(onUpdate: (logs: Attendanc
 
   return onSnapshot(logsRef, async (snapshot) => {
     if (!snapshot.empty) {
-      const logs: AttendanceLog[] = [];
+      const logsMap = new Map<string, AttendanceLog>();
       snapshot.forEach((d) => {
-        logs.push(d.data() as AttendanceLog);
+        const data = d.data() as AttendanceLog;
+        if (data && data.id) {
+          logsMap.set(data.id, data);
+        }
       });
+      const logs = Array.from(logsMap.values());
       // Sort newest first by timestamp or date + time
       logs.sort((a, b) => b.timestamp - a.timestamp);
       onUpdate(logs);

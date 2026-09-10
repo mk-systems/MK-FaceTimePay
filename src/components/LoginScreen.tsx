@@ -306,9 +306,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   </div>
 
                   <div className="grid grid-cols-2 gap-1.5">
-                    {employees.slice(0, 4).map((emp) => (
+                    {employees.slice(0, 4).map((emp, idx) => (
                       <button
-                        key={emp.id}
+                        key={`${emp.id}-${idx}`}
                         type="button"
                         onClick={() => handleQuickSelectEmployee(emp)}
                         className={`text-left p-2 rounded-xl border text-[11px] transition-all cursor-pointer ${

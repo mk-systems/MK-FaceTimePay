@@ -733,11 +733,11 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filtered.map((emp) => {
+              {filtered.map((emp, idx) => {
                 const isApproved = emp.approvalStatus === 'approved';
 
                 return (
-                  <tr key={emp.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                  <tr key={`${emp.id}-${idx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
                     <td className="px-4 py-3.5">
                       <div className="flex items-center space-x-3">
                         <img
