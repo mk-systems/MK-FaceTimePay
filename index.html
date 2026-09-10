@@ -14,42 +14,100 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
       (function() {
-        // Intercept and suppress benign Vite dev-server HMR websocket messages
+        // 1. Intercept global unhandled rejection & window error
         window.addEventListener('unhandledrejection', function(event) {
-          var str = String(event.reason && (event.reason.message || event.reason) || '');
-          if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
+          var reason = event && event.reason;
+          var str = String((reason && (reason.message || reason.stack || reason)) || '');
+          if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1 || str.indexOf('vite') !== -1) {
             event.preventDefault();
             event.stopImmediatePropagation();
+            return false;
           }
         }, true);
 
         window.addEventListener('error', function(event) {
-          var str = String(event.message || '');
-          if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
+          var msg = String(event && (event.message || event.filename || event) || '');
+          if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('vite') !== -1) {
             event.preventDefault();
             event.stopImmediatePropagation();
+            return false;
           }
         }, true);
 
-        var originalConsoleError = console.error;
+        // 2. Intercept console.error & console.warn
+        var origError = console.error;
         console.error = function() {
-          var args = Array.prototype.slice.call(arguments);
-          var fullText = args.map(function(a) { return String(a && (a.message || a) || ''); }).join(' ');
-          if (fullText.indexOf('WebSocket') !== -1 || fullText.indexOf('websocket') !== -1 || fullText.indexOf('[vite] failed to connect') !== -1) {
+          var fullText = Array.prototype.slice.call(arguments).map(function(a) {
+            return (a instanceof Error) ? (a.message + ' ' + (a.stack || '')) : String(a || '');
+          }).join(' ');
+          if (
+            fullText.indexOf('WebSocket') !== -1 ||
+            fullText.indexOf('websocket') !== -1 ||
+            fullText.indexOf('[vite]') !== -1 ||
+            fullText.indexOf('failed to connect') !== -1
+          ) {
             return;
           }
-          originalConsoleError.apply(console, arguments);
+          origError.apply(console, arguments);
         };
 
-        var originalConsoleWarn = console.warn;
+        var origWarn = console.warn;
         console.warn = function() {
-          var args = Array.prototype.slice.call(arguments);
-          var fullText = args.map(function(a) { return String(a && (a.message || a) || ''); }).join(' ');
-          if (fullText.indexOf('WebSocket') !== -1 || fullText.indexOf('websocket') !== -1 || fullText.indexOf('[vite] failed to connect') !== -1) {
+          var fullText = Array.prototype.slice.call(arguments).map(function(a) {
+            return (a instanceof Error) ? (a.message + ' ' + (a.stack || '')) : String(a || '');
+          }).join(' ');
+          if (
+            fullText.indexOf('WebSocket') !== -1 ||
+            fullText.indexOf('websocket') !== -1 ||
+            fullText.indexOf('[vite]') !== -1 ||
+            fullText.indexOf('failed to connect') !== -1
+          ) {
             return;
           }
-          originalConsoleWarn.apply(console, arguments);
+          origWarn.apply(console, arguments);
         };
+
+        // 3. Graceful WebSocket Interceptor for Vite HMR (disabled by cloud sandbox)
+        var NativeWebSocket = window.WebSocket;
+        if (NativeWebSocket) {
+          var CustomWebSocket = function(url, protocols) {
+            var isViteHmr = false;
+            if (typeof protocols === 'string' && protocols === 'vite-hmr') isViteHmr = true;
+            if (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) isViteHmr = true;
+            if (typeof url === 'string' && (url.indexOf('vite-hmr') !== -1 || url.indexOf('token=') !== -1)) isViteHmr = true;
+
+            if (isViteHmr) {
+              var dummy = new EventTarget();
+              dummy.binaryType = 'blob';
+              dummy.readyState = 1; // OPEN
+              dummy.url = url;
+              dummy.protocol = 'vite-hmr';
+              dummy.extensions = '';
+              dummy.bufferedAmount = 0;
+              dummy.send = function() {};
+              dummy.close = function() {};
+              dummy.onopen = null;
+              dummy.onclose = null;
+              dummy.onerror = null;
+              dummy.onmessage = null;
+              setTimeout(function() {
+                if (typeof dummy.onopen === 'function') {
+                  dummy.onopen(new Event('open'));
+                }
+                dummy.dispatchEvent(new Event('open'));
+              }, 10);
+              return dummy;
+            }
+
+            return new NativeWebSocket(url, protocols);
+          };
+          CustomWebSocket.prototype = NativeWebSocket.prototype;
+          CustomWebSocket.CONNECTING = NativeWebSocket.CONNECTING || 0;
+          CustomWebSocket.OPEN = NativeWebSocket.OPEN || 1;
+          CustomWebSocket.CLOSING = NativeWebSocket.CLOSING || 2;
+          CustomWebSocket.CLOSED = NativeWebSocket.CLOSED || 3;
+          window.WebSocket = CustomWebSocket;
+        }
       })();
     </script>
   </head>
