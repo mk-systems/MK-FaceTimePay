@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee profiles, biometric embeddings, and location permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "nickname": { "type": "string" },
+        "department": { "type": "string" },
+        "position": { "type": "string" },
+        "email": { "type": "string" },
+        "passcode": { "type": "string" },
+        "role": { "type": "string" },
+        "approvalStatus": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "wageType": { "type": "string" },
+        "baseSalary": { "type": "number" },
+        "allowOffsiteCheckin": { "type": "boolean" },
+        "allowedLocationIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "name", "role", "approvalStatus"]
+    },
+    "AttendanceLog": {
+      "title": "AttendanceLog",
+      "description": "Biometric face scan check-in/check-out logs with location audit metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "faceConfidence": { "type": "number" },
+        "locationName": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "distanceMeters": { "type": "number" }
+      },
+      "required": ["id", "employeeId", "date", "time", "type", "status"]
+    },
+    "CompanySettings": {
+      "title": "CompanySettings",
+      "description": "Global company settings and multi-workplace geofence locations",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "enableGpsVerification": { "type": "boolean" },
+        "workLocations": { "type": "array" }
+      }
+    },
+    "PayrollSummary": {
+      "title": "PayrollSummary",
+      "description": "Monthly payroll summaries and records",
+      "type": "object",
+      "properties": {
+        "periodMonth": { "type": "string" },
+        "periodName": { "type": "string" },
+        "totalNetPay": { "type": "number" }
+      }
+    }
+  }
+}

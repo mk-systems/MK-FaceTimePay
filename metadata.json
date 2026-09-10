@@ -1,0 +1,11 @@
+{
+  "name": "MK FaceTimePay - ระบบสแกนหน้าเข้างานและคิดเงินเดือน",
+  "description": "ระบบสแกนใบหน้าบันทึกเวลาเข้า-ออกงาน คำนวณเวลาทำงานและเงินเดือนอัตโนมัติ ออกสลิปเงินเดือน PDF A4 แนวตั้งในคลิกเดียว พร้อมระบบอนุมัติพนักงานโดยฝ่ายบัญชีและสำรองข้อมูล",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
+
