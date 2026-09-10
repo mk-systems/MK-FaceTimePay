@@ -17,19 +17,28 @@ async function getImageBase64AndMime(input: string): Promise<{ data: string; mim
   if (!input) return null;
 
   if (input.startsWith('data:')) {
-    const matches = input.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-    if (matches && matches.length === 3) {
-      return {
-        mimeType: matches[1],
-        data: matches[2]
-      };
+    const commaIndex = input.indexOf(',');
+    if (commaIndex !== -1) {
+      const meta = input.substring(0, commaIndex);
+      const data = input.substring(commaIndex + 1).trim();
+      const mimeMatch = meta.match(/data:([^;]+)/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      return { mimeType, data };
     }
   }
 
   if (input.startsWith('http://') || input.startsWith('https://')) {
     try {
-      const resp = await fetch(input);
-      if (!resp.ok) return null;
+      const resp = await fetch(input, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/*,*/*'
+        }
+      });
+      if (!resp.ok) {
+        console.warn(`Failed to fetch image URL (status ${resp.status}): ${input.substring(0, 60)}...`);
+        return null;
+      }
       const arrayBuffer = await resp.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const contentType = resp.headers.get('content-type') || 'image/jpeg';
@@ -45,6 +54,38 @@ async function getImageBase64AndMime(input: string): Promise<{ data: string; mim
 
   return null;
 }
+
+// Proxy image endpoint to prevent canvas CORS taint on client side
+app.get('/api/proxy-image', async (req, res) => {
+  try {
+    const imageUrl = req.query.url as string;
+    if (!imageUrl || (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://'))) {
+      return res.status(400).send('Invalid or missing image URL');
+    }
+
+    const resp = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/*,*/*'
+      }
+    });
+
+    if (!resp.ok) {
+      return res.status(resp.status).send('Failed to fetch remote image');
+    }
+
+    const contentType = resp.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    
+    const arrayBuffer = await resp.arrayBuffer();
+    return res.send(Buffer.from(arrayBuffer));
+  } catch (err: any) {
+    console.warn('Proxy image error:', err);
+    return res.status(500).send('Error proxying image');
+  }
+});
 
 // AI Biometric Face Comparison Endpoint
 app.post('/api/verify-face', async (req, res) => {
@@ -62,7 +103,7 @@ app.post('/api/verify-face', async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.warn('GEMINI_API_KEY is not set. Fallback to client-side descriptor matching.');
-      return res.status(503).json({
+      return res.status(200).json({
         matched: false,
         fallbackToClient: true,
         reasoning: 'GEMINI_API_KEY missing'
@@ -76,7 +117,7 @@ app.post('/api/verify-face', async (req, res) => {
       return res.json({
         matched: false,
         fallbackToClient: true,
-        reasoning: 'ไม่สามารถโหลดภาพเพื่อส่งไปตรวจด้วย Gemini AI ได้'
+        reasoning: 'ไม่สามารถโหลดภาพเพื่อส่งไปตรวจด้วย Gemini AI ได้ กำลังสลับไปใช้ระบบคำนวณชีวมิติประจำเครื่อง'
       });
     }
 
@@ -84,13 +125,14 @@ app.post('/api/verify-face', async (req, res) => {
 
     const promptText = `คุณคือระบบตรวจพิสูจน์อัตลักษณ์ชีวมิติ (Biometric Face Verification Engine) สำหรับการลงเวลาเข้า-ออกงานของพนักงาน
 
-ภาพที่ 1: คือ ภาพถ่ายใบหน้าต้นแบบที่ลงทะเบียนไว้ในระบบของพนักงานชื่อ "${employeeName || 'พนักงาน'}"
-ภาพที่ 2: คือ ภาพถ่ายสดจากกล้องขณะสแกนลงเวลาตอนนี้
+ภาพที่ 1 (ภาพแรก): คือ ภาพถ่ายใบหน้าต้นแบบที่ลงทะเบียนไว้ในระบบของพนักงานชื่อ "${employeeName || 'พนักงาน'}"
+ภาพที่ 2 (ภาพที่สอง): คือ ภาพถ่ายสดจากกล้องขณะสแกนลงเวลาตอนนี้
 
 โปรดวิเคราะห์โครงสร้างใบหน้า (Facial Features, Eye/Nose/Mouth Alignment, Jawline Structure):
 1. ตรวจสอบว่าภาพที่ 2 เป็นพนักงาน **คนเดียวกับ** ภาพที่ 1 หรือไม่?
 2. หากหน้ากล้องเป็นเพื่อนหรือคนอื่นสแกนแทน ให้ระบุ matched = false อย่างเด็ดขาด!
-3. หากเป็นพนักงานคนเดียวกัน (แม้จะเปลี่ยนทรงผม สวมแว่นตา หรือแสงแตกต่างกัน) ให้ระบุ matched = true
+3. หากเป็นพนักงานคนเดียวกัน (แม้จะเปลี่ยนทรงผม สวมแว่นตา แสงแตกต่างกัน หรือหน้าตรง/เอียงเล็กน้อย) ให้ระบุ matched = true
+4. หากภาพต้นแบบเป็นภาพตัวอย่าง (เช่น ภาพ stock photo) และภาพสดเป็นคนจริงที่พยายามลงเวลา หากดูแล้วเป็นคนละคน ให้ matched = false พร้อมคำแนะนำภาษาไทยว่าให้กดปุ่ม "ถ่ายภาพใบหน้าจริงของฉัน เดี๋ยวนี้" เพื่ออัปเดตภาพต้นแบบก่อน
 
 ตอบกลับในรูปแบบ JSON เท่านั้น:
 {
@@ -99,31 +141,27 @@ app.post('/api/verify-face', async (req, res) => {
   "reasoning": "คำอธิบายสั้นๆ ภาษาไทย เช่น 'โครงสร้างใบหน้าตรงกับพนักงานลงทะเบียน' หรือ 'ใบหน้าไม่ตรงกับพนักงานเจ้าของบัญชี ไม่อนุญาตให้สแกนแทนกัน'"
 }`;
 
-    let responseText = '';
     const contentParts = [
       {
-        role: 'user',
-        parts: [
-          {
-            inlineData: {
-              mimeType: masterImg.mimeType,
-              data: masterImg.data
-            }
-          },
-          {
-            inlineData: {
-              mimeType: liveImg.mimeType,
-              data: liveImg.data
-            }
-          },
-          { text: promptText }
-        ]
-      }
+        inlineData: {
+          mimeType: masterImg.mimeType,
+          data: masterImg.data
+        }
+      },
+      {
+        inlineData: {
+          mimeType: liveImg.mimeType,
+          data: liveImg.data
+        }
+      },
+      promptText
     ];
+
+    let responseText = '';
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: contentParts,
         config: {
           responseMimeType: 'application/json'
@@ -131,16 +169,26 @@ app.post('/api/verify-face', async (req, res) => {
       });
       responseText = response.text || '';
     } catch (primaryErr) {
-      console.warn('Primary model gemini-2.5-flash failed, trying gemini-flash-latest...', primaryErr);
-      const fallbackResponse = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: contentParts,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
-      responseText = fallbackResponse.text || '';
+      console.warn('Primary model gemini-3.8-flash failed, trying gemini-flash-latest...', primaryErr);
+      try {
+        const fallbackResponse = await ai.models.generateContent({
+          model: 'gemini-flash-latest',
+          contents: contentParts,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        });
+        responseText = fallbackResponse.text || '';
+      } catch (fallbackErr) {
+        console.warn('Both Gemini models failed, falling back to client-side:', fallbackErr);
+        return res.json({
+          matched: false,
+          fallbackToClient: true,
+          reasoning: 'ไม่สามารถเรียกใช้บริการ Gemini AI ได้ในขณะนี้ ระบบสลับไปใช้โหมดไบโอเมตริกประจำเครื่อง'
+        });
+      }
     }
+
     let parsedResult = {
       matched: false,
       confidence: 0,
@@ -148,7 +196,11 @@ app.post('/api/verify-face', async (req, res) => {
     };
 
     try {
-      parsedResult = JSON.parse(responseText);
+      let cleanText = responseText.trim();
+      if (cleanText.startsWith('```')) {
+        cleanText = cleanText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      }
+      parsedResult = JSON.parse(cleanText);
     } catch {
       console.warn('Could not parse Gemini JSON response:', responseText);
     }
@@ -156,10 +208,10 @@ app.post('/api/verify-face', async (req, res) => {
     return res.json(parsedResult);
   } catch (error: any) {
     console.error('API /api/verify-face error:', error);
-    return res.status(500).json({
+    return res.status(200).json({
       matched: false,
       fallbackToClient: true,
-      reasoning: 'เกิดข้อผิดพลาดในการตรวจสอบใบหน้าผ่าน AI'
+      reasoning: 'เกิดข้อผิดพลาดในการตรวจสอบใบหน้าผ่าน AI กำลังสลับไปใช้ระบบชีวมิติประจำเครื่อง'
     });
   }
 });

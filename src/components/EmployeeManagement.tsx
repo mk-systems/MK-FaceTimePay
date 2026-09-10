@@ -26,12 +26,14 @@ import {
   MapPinned,
   Compass,
   Globe,
-  Navigation
+  Navigation,
+  Fingerprint
 } from 'lucide-react';
 import { Employee, WageType } from '../types';
 import { addEmployee, updateEmployee, getCompanySettings } from '../lib/storage';
 import { formatCurrency } from '../lib/thaiBahtText';
 import { StrictFaceRegistrationModal } from './StrictFaceRegistrationModal';
+import { BiometricProfileModal } from './BiometricProfileModal';
 
 interface EmployeeManagementProps {
   employees: Employee[];
@@ -43,6 +45,7 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
   const [activeTab, setActiveTab] = useState<'all' | 'monthly' | 'daily'>('all');
   const [search, setSearch] = useState('');
   const [strictRegisterTarget, setStrictRegisterTarget] = useState<Employee | null>(null);
+  const [selectedBiometricEmp, setSelectedBiometricEmp] = useState<Employee | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -822,6 +825,16 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
                     <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1.5">
                       <button
                         type="button"
+                        onClick={() => setSelectedBiometricEmp(emp)}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors cursor-pointer"
+                        title="ดูและตรวจสอบคุณลักษณะชีวมิติใบหน้า (Biometric Profile & Lock)"
+                      >
+                        <Fingerprint className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>ชีวมิติ {emp.biometricProfile?.isLocked ? '🔒' : ''}</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => startFaceCamera(emp)}
                         className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 rounded-lg transition-colors cursor-pointer"
                         title="ถ่ายภาพใบหน้า Face ID ใหม่ด้วยกล้องสด"
@@ -960,6 +973,15 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
                   >
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
                     <span>ลงทะเบียนมิติรัดกุม (Liveness)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBiometricEmp(editingEmployee)}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-xs cursor-pointer"
+                    title="ดูคุณลักษณะชีวมิติเรขาคณิตใบหน้าและสถานะล็อคความปลอดภัย"
+                  >
+                    <Fingerprint className="w-3.5 h-3.5 text-indigo-300" />
+                    <span>ข้อมูลชีวมิติ {editingEmployee.biometricProfile?.isLocked ? '🔒' : ''}</span>
                   </button>
                 </div>
               </div>
@@ -1448,6 +1470,17 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
           }
           setStrictRegisterTarget(null);
           setEditSuccessMsg(`ลงทะเบียนใบหน้าชีวมิติมิติรัดกุมสำหรับ คุณ${updatedEmp.name} เรียบร้อยแล้ว`);
+        }}
+      />
+
+      {/* Biometric Profile Inspector & Lock Modal */}
+      <BiometricProfileModal
+        isOpen={!!selectedBiometricEmp}
+        onClose={() => setSelectedBiometricEmp(null)}
+        employee={selectedBiometricEmp}
+        onOpenStrictEnroll={(emp) => {
+          setSelectedBiometricEmp(null);
+          setStrictRegisterTarget(emp);
         }}
       />
     </div>

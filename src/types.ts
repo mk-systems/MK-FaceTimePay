@@ -24,6 +24,27 @@ export interface BankAccount {
   accountName: string;
 }
 
+export interface BiometricFacialFeatures {
+  eyeDistanceRatio: number;      // อัตราส่วนระยะห่างระหว่างดวงตา (Inter-pupillary Distance Ratio)
+  eyeToNoseRatio: number;        // สัดส่วนดวงตาถึงสันจมูก (Eye-to-Nose Proportion)
+  noseToMouthRatio: number;      // สัดส่วนจมูกถึงปาก (Nose-to-Mouth Proportion)
+  faceAspectRatio: number;       // อัตราส่วนความกว้างต่อความยาวใบหน้า (Face Aspect Ratio)
+  jawlineContour: string;        // รูปทรงใบหน้า (เช่น 'Oval (รูปไข่)', 'Square (เหลี่ยม)', 'Round (กลม)')
+  skinLuminance: number;         // ระดับแสงเฉลี่ยบนใบหน้า (Luminance Profile 0-255)
+  livenessScore: number;         // คะแนนการตรวจสอบคนจริง (Liveness Score 0-100%)
+}
+
+export interface BiometricProfile {
+  enrolledAt: string;            // วันเวลาที่สกัดและบันทึกอัตลักษณ์ชีวมิติ
+  enrolledBy?: string;           // ผู้บันทึกหรืออนุมัติ (เช่น 'HR/Admin' หรือ 'ลงทะเบียนตนเอง')
+  isLocked: boolean;             // สถานะล็อคอัตลักษณ์ ป้องกันการสลับรูปเพื่อสแกนแทนกัน
+  qualityScore: number;          // คะแนนคุณภาพข้อมูลชีวมิติ (0-100%)
+  clarityScore: number;          // ความคมชัดของภาพชีวมิติ (0-100%)
+  vector: number[];              // เวกเตอร์ชีวมิติ 64 มิติ (Biometric Embedding)
+  features: BiometricFacialFeatures; // รายละเอียดคุณลักษณะเรขาคณิตใบหน้า
+  deviceModel?: string;          // อุปกรณ์ที่ใช้ลงทะเบียน
+}
+
 export interface Employee {
   id: string;             // e.g. "EMP-001"
   name: string;           // e.g. "นายสมชาย มุ่งมั่น"
@@ -35,6 +56,7 @@ export interface Employee {
   idCard: string;         // เลขประจำตัวประชาชน 13 หลัก
   photoUrl: string;       // Base64 or Image URL for Face Recognition
   faceDescriptor?: number[]; // Biometric embedding vector
+  biometricProfile?: BiometricProfile; // ข้อมูลคุณลักษณะอัตลักษณ์ชีวมิติ
   wageType: WageType;     // รายเดือน, รายวัน, รายชั่วโมง
   baseSalary: number;     // อัตราจ้างพื้นฐาน (บาท)
   otRatePerHour: number;  // อัตราค่าล่วงเวลาต่อชั่วโมง

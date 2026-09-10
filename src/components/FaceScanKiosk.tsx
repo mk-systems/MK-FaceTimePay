@@ -18,14 +18,19 @@ import {
   ShieldCheck,
   Check,
   Info,
-  BadgeCheck
+  BadgeCheck,
+  Zap,
+  ScanLine
 } from 'lucide-react';
 import { Employee, AttendanceType, AttendanceStatus } from '../types';
-import { recordAttendanceScan, getAttendanceLogs, updateEmployee } from '../lib/storage';
+import { recordAttendanceScan, getAttendanceLogs, updateEmployee, getEmployees } from '../lib/storage';
 import { 
   captureVideoFrame, 
   playScanAudio,
   verifyEmployeeFaceBiometric,
+  autoIdentifyFaceFromCamera,
+  extractBiometricFromImage,
+  createBiometricProfile,
   FaceMatchResult
 } from '../lib/faceDetector';
 
@@ -45,6 +50,11 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isScanning, setIsScanning] = useState<boolean>(false);
   
+  // Kiosk Mode: 'type1_auto' (แบบที่ 1) vs 'type2_1to1' (แบบที่ 2)
+  const [kioskMode, setKioskMode] = useState<'type1_auto' | 'type2_1to1'>('type1_auto');
+  const [autoScanEnabled, setAutoScanEnabled] = useState<boolean>(false);
+  const [isEnrolling, setIsEnrolling] = useState<boolean>(false);
+
   // 1:1 Verification: Employee Selection
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>(() => {
     return employees.length > 0 ? employees[0].id : '';
@@ -195,8 +205,11 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
   };
 
   // Quick enroll real face from active camera for currently selected employee
-  const handleQuickEnrollFace = () => {
-    if (!selectedEmployee) {
+  const handleQuickEnrollFace = async (empIdToEnroll?: string) => {
+    const allEmps = getEmployees();
+    const targetEmp = allEmps.find(e => e.id === (empIdToEnroll || selectedCandidateId)) || selectedEmployee;
+
+    if (!targetEmp) {
       alert('กรุณาเลือกพนักงานที่ต้องการลงทะเบียนใบหน้าก่อน');
       return;
     }
@@ -211,26 +224,33 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
       return;
     }
 
-    const updatedEmp: Employee = {
-      ...selectedEmployee,
-      photoUrl: snapshot,
-    };
+    setIsEnrolling(true);
 
-    updateEmployee(updatedEmp);
-    setEnrollSuccessMessage(`✅ บันทึกภาพใบหน้าจริงของคุณ [${selectedEmployee.name}] สำเร็จแล้ว! ภาพต้นแบบได้รับการอัปเดตเป็นภาพสดของคุณแล้ว พร้อมสำหรับการสแกนยืนยันตัวตน 1:1`);
-    setTimeout(() => setEnrollSuccessMessage(null), 8000);
+    try {
+      // Extract biometric vector immediately so both AI and client matching work instantly
+      const bio = await extractBiometricFromImage(snapshot);
+      const bioProfile = createBiometricProfile(bio, 'ผู้ใช้งานลงทะเบียนด้วยกล้องจริง (Self-Enrollment)', true);
+
+      const updatedEmp: Employee = {
+        ...targetEmp,
+        photoUrl: snapshot,
+        faceDescriptor: bio.hasFace && bio.vector.length > 0 ? bio.vector : targetEmp.faceDescriptor,
+        biometricProfile: bioProfile,
+      };
+
+      updateEmployee(updatedEmp);
+      setEnrollSuccessMessage(`✅ บันทึกภาพใบหน้าจริงของคุณ [${targetEmp.name}] สำเร็จแล้ว! สกัดโครงสร้างชีวมิติ (Biometric Profile) เรียบร้อย พร้อมสำหรับการสแกนระบุตัวตนแบบที่ 1 (1:N) และแบบที่ 2 (1:1)`);
+      setTimeout(() => setEnrollSuccessMessage(null), 8000);
+    } catch (err) {
+      console.error('Enroll error:', err);
+      alert('เกิดข้อผิดพลาดในการประมวลผลภาพถ่ายใบหน้า');
+    } finally {
+      setIsEnrolling(false);
+    }
   };
 
-  // Perform 1:1 Biometric Face Verification
+  // Perform Face Scan (Supports Type 1 Auto-Identification & Type 2 1:1 Verification)
   const executeScan = async (targetEmpId?: string) => {
-    const empId = targetEmpId || selectedCandidateId;
-    const targetEmp = employees.find(e => e.id === empId);
-
-    if (!targetEmp) {
-      alert('กรุณาเลือกพนักงานที่จะทำการสแกนยืนยันตัวตนก่อน');
-      return;
-    }
-
     setIsScanning(true);
     setLastScanResult(null);
 
@@ -246,8 +266,25 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
       return;
     }
 
-    // Run 1:1 Personal Biometric Verification
-    const matchResult: FaceMatchResult = await verifyEmployeeFaceBiometric(snapshotUrl, targetEmp);
+    const currentEmployees = getEmployees();
+    let matchResult: FaceMatchResult;
+
+    if (kioskMode === 'type1_auto' && !targetEmpId) {
+      // แบบที่ 1: สแกนระบุตัวตนอัตโนมัติ (1:N Auto-Identification)
+      matchResult = await autoIdentifyFaceFromCamera(snapshotUrl, currentEmployees);
+    } else {
+      // แบบที่ 2: สแกนยืนยันเฉพาะบุคคล 1:1 (1:1 Personal Verification)
+      const empId = targetEmpId || selectedCandidateId;
+      const targetEmp = currentEmployees.find(e => e.id === empId) || employees.find(e => e.id === empId);
+
+      if (!targetEmp) {
+        setIsScanning(false);
+        alert('กรุณาเลือกพนักงานที่จะทำการสแกนยืนยันตัวตนก่อน');
+        return;
+      }
+
+      matchResult = await verifyEmployeeFaceBiometric(snapshotUrl, targetEmp);
+    }
 
     setIsScanning(false);
 
@@ -255,11 +292,11 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
       playScanAudio(false);
       setLastScanResult({
         success: false,
-        employee: targetEmp,
+        employee: matchResult.employee || (kioskMode === 'type2_1to1' ? selectedEmployee || undefined : undefined),
         message: matchResult.message,
         confidence: matchResult.confidence,
         photoUrl: matchResult.snapshotDataUrl || snapshotUrl,
-        masterPhotoUrl: targetEmp.photoUrl,
+        masterPhotoUrl: matchResult.employee?.photoUrl || selectedEmployee?.photoUrl,
         reasoning: matchResult.reasoning,
         verifiedWithAi: matchResult.verifiedWithAi,
       });
@@ -275,7 +312,7 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
         message: matchResult.message,
         confidence: matchResult.confidence,
         photoUrl: matchResult.snapshotDataUrl || snapshotUrl,
-        masterPhotoUrl: targetEmp.photoUrl,
+        masterPhotoUrl: matchResult.employee.photoUrl,
         reasoning: matchResult.reasoning,
         verifiedWithAi: matchResult.verifiedWithAi,
       });
@@ -337,7 +374,7 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
       lateMinutes,
       otMinutes,
       faceConfidence: matchResult.confidence,
-      capturedPhoto: matchResult.snapshotDataUrl,
+      capturedPhoto: matchResult.snapshotDataUrl || snapshotUrl,
       verified: true,
       notes: resolvedType === 'check_in'
         ? (status === 'late' ? `มาสาย ${lateMinutes} นาที (กะ ${emp.shift?.startTime || '08:30'})` : `เข้างานตรงเวลา (กะ ${emp.shift?.startTime || '08:30'})`)
@@ -350,12 +387,14 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
     setLastScanResult({
       success: true,
       employee: emp,
-      message: `ยืนยันตัวตน 1:1 สำเร็จ! บันทึก${resolvedType === 'check_in' ? 'เข้างาน' : 'ออกงาน'}เรียบร้อย`,
+      message: kioskMode === 'type1_auto'
+        ? `ระบุตัวตนอัตโนมัติสำเร็จ! ยินดีต้อนรับ คุณ${emp.name} บันทึก${resolvedType === 'check_in' ? 'เข้างาน' : 'ออกงาน'}เรียบร้อย`
+        : `ยืนยันตัวตน 1:1 สำเร็จ! บันทึก${resolvedType === 'check_in' ? 'เข้างาน' : 'ออกงาน'}เรียบร้อย`,
       status,
       lateMinutes,
       otMinutes,
       confidence: matchResult.confidence,
-      photoUrl: matchResult.snapshotDataUrl,
+      photoUrl: matchResult.snapshotDataUrl || snapshotUrl,
       masterPhotoUrl: emp.photoUrl,
       reasoning: matchResult.reasoning,
       verifiedWithAi: matchResult.verifiedWithAi,
@@ -363,6 +402,21 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
       type: resolvedType,
     });
   };
+
+  // Auto-scan polling when enabled in Mode 1
+  useEffect(() => {
+    if (!autoScanEnabled || kioskMode !== 'type1_auto' || !cameraActive || isScanning) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      if (!isScanning && cameraActive) {
+        executeScan();
+      }
+    }, 4500);
+
+    return () => clearInterval(interval);
+  }, [autoScanEnabled, kioskMode, cameraActive, isScanning]);
 
   const formattedDate = currentTime.toLocaleDateString('th-TH', {
     weekday: 'long',
@@ -379,36 +433,101 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      {/* Top Banner / Time Info & 1:1 Verification Badge */}
+      {/* Top Banner / Time Info & Mode Switcher */}
       <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 rounded-2xl p-6 text-white mb-6 shadow-md border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <div className="w-12 h-12 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400">
             <Clock className="w-6 h-6 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-xl font-bold tracking-tight">ระบบสแกนใบหน้าบันทึกเวลา (1:1 Personal Verification)</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-bold tracking-tight">ระบบสแกนใบหน้าบันทึกเวลา AI Kiosk</h2>
               <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full flex items-center space-x-1">
                 <BadgeCheck className="w-3.5 h-3.5" />
-                <span>แม่นยำ 100% ป้องกันสแกนแทนกัน</span>
+                <span>Gemini Vision AI + ชีวมิติ</span>
               </span>
             </div>
             <p className="text-sm text-slate-400 flex items-center space-x-2 mt-0.5">
               <Calendar className="w-3.5 h-3.5" />
               <span>{formattedDate}</span>
               <span className="text-slate-600">•</span>
-              <span className="text-blue-300 font-medium">ระบุตัวตน 1:1 เทียบกับภาพต้นแบบที่ลงทะเบียน</span>
+              <span className="text-blue-300 font-medium">
+                {kioskMode === 'type1_auto' ? 'แบบที่ 1: ตรวจจับและระบุตัวตนพนักงานอัตโนมัติ (1:N)' : 'แบบที่ 2: ยืนยันเฉพาะบุคคล (1:1 Verification)'}
+              </span>
             </p>
           </div>
         </div>
 
         {/* Digital Clock */}
-        <div className="bg-black/40 border border-white/10 px-6 py-2.5 rounded-xl text-center">
+        <div className="bg-black/40 border border-white/10 px-6 py-2.5 rounded-xl text-center shrink-0">
           <div className="text-3xl font-mono font-bold tracking-widest text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]">
             {formattedTime}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">เวลามาตรฐานประเทศไทย (ICT)</div>
         </div>
+      </div>
+
+      {/* Mode Switch Selector (แบบที่ 1 vs แบบที่ 2) */}
+      <div className="bg-white dark:bg-slate-900 p-2 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center space-x-2 w-full sm:w-auto">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300 px-1 shrink-0">เลือกรูปแบบการสแกน:</span>
+          <div className="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-xl w-full sm:w-auto gap-1">
+            <button
+              id="mode-tab-type1"
+              type="button"
+              onClick={() => {
+                setKioskMode('type1_auto');
+                setLastScanResult(null);
+              }}
+              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                kioskMode === 'type1_auto'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>แบบที่ 1: สแกนระบุตัวตนอัตโนมัติ</span>
+            </button>
+
+            <button
+              id="mode-tab-type2"
+              type="button"
+              onClick={() => {
+                setKioskMode('type2_1to1');
+                setAutoScanEnabled(false);
+                setLastScanResult(null);
+              }}
+              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                kioskMode === 'type2_1to1'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>แบบที่ 2: สแกนยืนยันเฉพาะบุคคล 1:1</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Mode 1 Auto-scan toggle */}
+        {kioskMode === 'type1_auto' && (
+          <div className="flex items-center space-x-2.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl text-xs">
+            <ScanLine className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-pulse shrink-0" />
+            <span className="font-semibold text-blue-900 dark:text-blue-200">สแกนอัตโนมัติต่อเนื่อง:</span>
+            <button
+              id="btn-toggle-autoscan"
+              type="button"
+              onClick={() => setAutoScanEnabled(prev => !prev)}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors cursor-pointer ${
+                autoScanEnabled
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'
+              }`}
+            >
+              {autoScanEnabled ? '🟢 เปิดใช้งานอยู่' : '⚪ ปิดอยู่ (กดเพื่อเปิด)'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -501,7 +620,7 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
                   </span>
 
                   <span className="text-[10px] text-slate-300 bg-black/60 px-2 py-0.5 rounded-md">
-                    ระบบเปรียบเทียบอัตลักษณ์ชีวมิติ 1:1
+                    {kioskMode === 'type1_auto' ? 'ระบบตรวจจับใบหน้าอัตโนมัติ (1:N)' : 'ระบบเปรียบเทียบอัตลักษณ์ 1:1'}
                   </span>
                 </div>
               </div>
@@ -551,7 +670,7 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
                 {/* Voice Test Buttons */}
                 <div className="flex items-center space-x-1 px-2 py-1 bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900/50 rounded-xl text-xs text-pink-700 dark:text-pink-300">
                   <Volume2 className="w-3.5 h-3.5 shrink-0 text-pink-600 dark:text-pink-400" />
-                  <span className="font-semibold text-[11px]">เสียงตอบรับ:</span>
+                  <span className="font-semibold text-[11px]">เสียง:</span>
                   <button
                     type="button"
                     onClick={() => playScanAudio(true, 'check_in')}
@@ -570,11 +689,11 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
                   </button>
                 </div>
 
-                {/* Main 1:1 Scan Action Button */}
+                {/* Main Scan Action Button */}
                 <button
                   id="btn-scan-face-now"
                   onClick={() => executeScan()}
-                  disabled={isScanning || !selectedEmployee}
+                  disabled={isScanning || (kioskMode === 'type2_1to1' && !selectedEmployee)}
                   className="w-full sm:w-auto justify-center px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md flex items-center space-x-2 transition-all cursor-pointer shrink-0"
                 >
                   {isScanning ? (
@@ -584,8 +703,17 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>สแกนยืนยันตัวตน 1:1 คุณ {selectedEmployee ? selectedEmployee.name : 'พนักงาน'}</span>
+                      {kioskMode === 'type1_auto' ? (
+                        <>
+                          <Zap className="w-4 h-4 text-amber-300" />
+                          <span>สแกนระบุตัวตนอัตโนมัติ (แบบที่ 1)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>สแกนยืนยันตัวตน 1:1 คุณ {selectedEmployee ? selectedEmployee.name : 'พนักงาน'}</span>
+                        </>
+                      )}
                     </>
                   )}
                 </button>
@@ -991,13 +1119,25 @@ export const FaceScanKiosk: React.FC<FaceScanKioskProps> = ({
           <div className="bg-slate-50 dark:bg-slate-900/80 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 transition-colors">
             <h5 className="font-semibold text-slate-800 dark:text-slate-200 mb-1.5 flex items-center space-x-1.5">
               <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>หลักการทำงานแบบ 1:1 Personal Verification</span>
+              <span>
+                {kioskMode === 'type1_auto'
+                  ? 'คำแนะนำการใช้งาน: แบบที่ 1 สแกนระบุตัวตนอัตโนมัติ'
+                  : 'คำแนะนำการใช้งาน: แบบที่ 2 สแกนยืนยันเฉพาะบุคคล 1:1'}
+              </span>
             </h5>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              1. เลือกบัญชีของคุณจากรายการด้านบน<br />
-              2. หากต้องการใช้ภาพจริง ให้กดปุ่ม <strong>&quot;📸 ถ่ายภาพใบหน้าจริงของฉัน เดี๋ยวนี้&quot;</strong> เพื่อบันทึกต้นแบบ<br />
-              3. มองกล้องเว็บแคมแล้วกดปุ่ม <strong>&quot;สแกนยืนยันตัวตน 1:1&quot;</strong> ระบบจะส่งภาพไปตรวจเทียบเคียงโครงสร้างใบหน้า ป้องกันการสแกนแทนกันได้ 100%
-            </p>
+            {kioskMode === 'type1_auto' ? (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                1. พนักงานเพียงยืนตรงหน้ากล้องเว็บแคม<br />
+                2. กดปุ่ม <strong>&quot;สแกนระบุตัวตนอัตโนมัติ&quot;</strong> (หรือเปิดโหมดสแกนต่อเนื่อง) ระบบจะค้นหาและเทียบใบหน้ากับพนักงานทั้งหมดอัตโนมัติ<br />
+                3. หากเพิ่งเริ่มใช้งานหรือระบบระบุตัวตนไม่พบ สามารถเลือกชื่อด้านบนแล้วกด <strong>&quot;📸 ถ่ายภาพใบหน้าจริงของฉัน เดี๋ยวนี้&quot;</strong> เพื่อบันทึกต้นแบบชีวมิติของตนเองได้ทันที
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                1. ค้นหาและเลือกชื่อบัญชีของคุณจากรายการด้านบน<br />
+                2. หากยังไม่มีภาพถ่ายจริง ให้กดปุ่ม <strong>&quot;📸 ถ่ายภาพใบหน้าจริงของฉัน เดี๋ยวนี้&quot;</strong> เพื่อบันทึกต้นแบบ<br />
+                3. มองกล้องแล้วกดปุ่ม <strong>&quot;สแกนยืนยันตัวตน 1:1&quot;</strong> เพื่อตรวจสอบกับต้นแบบ ป้องกันการสแกนแทนกัน
+              </p>
+            )}
           </div>
         </div>
       </div>

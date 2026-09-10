@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Employee } from '../types';
 import { updateEmployee } from '../lib/storage';
-import { extractBiometricFromImage } from '../lib/faceDetector';
+import { extractBiometricFromImage, createBiometricProfile } from '../lib/faceDetector';
 
 interface StrictFaceRegistrationModalProps {
   isOpen: boolean;
@@ -253,12 +253,14 @@ export const StrictFaceRegistrationModal: React.FC<StrictFaceRegistrationModalPr
 
     // Extract Biometric Embedding and compute quality metrics
     const bio = await extractBiometricFromImage(mainPhoto);
+    const bioProfile = createBiometricProfile(bio, 'ฝ่ายบุคคล HR / ตู้ลงทะเบียนชีวมิติ', true);
 
     const nowISO = new Date().toISOString();
     const updatedEmp: Employee = {
       ...employee,
       photoUrl: mainPhoto,
       faceDescriptor: bio.vector,
+      biometricProfile: bioProfile,
       registeredAt: employee.registeredAt || nowISO,
     };
 

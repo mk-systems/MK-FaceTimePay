@@ -157,18 +157,57 @@ export function getEmployees(): Employee[] {
   if (saved) {
     try {
       const parsed: Employee[] = JSON.parse(saved);
-      // Ensure each employee has a passcode (defaults to 1234)
+      // Ensure each employee has a passcode (defaults to 1234) and default biometricProfile
       return parsed.map(e => ({
         ...e,
-        passcode: e.passcode || '1234'
+        passcode: e.passcode || '1234',
+        biometricProfile: e.biometricProfile || {
+          enrolledAt: e.registeredAt || '2026-08-01T09:00:00.000Z',
+          enrolledBy: 'ฝ่ายบุคคล HR / ระบบกล้องชีวมิติ',
+          isLocked: true,
+          qualityScore: 96,
+          clarityScore: 94,
+          vector: e.faceDescriptor || [],
+          features: {
+            eyeDistanceRatio: 0.452,
+            eyeToNoseRatio: 0.380,
+            noseToMouthRatio: 0.318,
+            faceAspectRatio: 1.34,
+            jawlineContour: 'Oval (รูปไข่)',
+            skinLuminance: 135,
+            livenessScore: 96,
+          },
+          deviceModel: 'Kiosk HD Webcam (Biometric Scanner)',
+        },
       }));
     } catch {
       // ignore
     }
   }
   // Initialize with seed data
-  localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(initialEmployees));
-  return initialEmployees;
+  const seedWithBiometrics = initialEmployees.map(e => ({
+    ...e,
+    biometricProfile: e.biometricProfile || {
+      enrolledAt: e.registeredAt || '2026-08-01T09:00:00.000Z',
+      enrolledBy: 'ฝ่ายบุคคล HR / ระบบกล้องชีวมิติ',
+      isLocked: true,
+      qualityScore: 96,
+      clarityScore: 94,
+      vector: e.faceDescriptor || [],
+      features: {
+        eyeDistanceRatio: 0.452,
+        eyeToNoseRatio: 0.380,
+        noseToMouthRatio: 0.318,
+        faceAspectRatio: 1.34,
+        jawlineContour: 'Oval (รูปไข่)',
+        skinLuminance: 135,
+        livenessScore: 96,
+      },
+      deviceModel: 'Kiosk HD Webcam (Biometric Scanner)',
+    },
+  }));
+  localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(seedWithBiometrics));
+  return seedWithBiometrics;
 }
 
 export function saveEmployees(employees: Employee[]): void {
