@@ -99,34 +99,48 @@ app.post('/api/verify-face', async (req, res) => {
   "reasoning": "คำอธิบายสั้นๆ ภาษาไทย เช่น 'โครงสร้างใบหน้าตรงกับพนักงานลงทะเบียน' หรือ 'ใบหน้าไม่ตรงกับพนักงานเจ้าของบัญชี ไม่อนุญาตให้สแกนแทนกัน'"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              inlineData: {
-                mimeType: masterImg.mimeType,
-                data: masterImg.data
-              }
-            },
-            {
-              inlineData: {
-                mimeType: liveImg.mimeType,
-                data: liveImg.data
-              }
-            },
-            { text: promptText }
-          ]
-        }
-      ],
-      config: {
-        responseMimeType: 'application/json'
+    let responseText = '';
+    const contentParts = [
+      {
+        role: 'user',
+        parts: [
+          {
+            inlineData: {
+              mimeType: masterImg.mimeType,
+              data: masterImg.data
+            }
+          },
+          {
+            inlineData: {
+              mimeType: liveImg.mimeType,
+              data: liveImg.data
+            }
+          },
+          { text: promptText }
+        ]
       }
-    });
+    ];
 
-    const responseText = response.text || '';
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: contentParts,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+      responseText = response.text || '';
+    } catch (primaryErr) {
+      console.warn('Primary model gemini-2.5-flash failed, trying gemini-flash-latest...', primaryErr);
+      const fallbackResponse = await ai.models.generateContent({
+        model: 'gemini-flash-latest',
+        contents: contentParts,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+      responseText = fallbackResponse.text || '';
+    }
     let parsedResult = {
       matched: false,
       confidence: 0,

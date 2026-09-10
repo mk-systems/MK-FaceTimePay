@@ -9,6 +9,9 @@ export interface FaceMatchResult {
   isApproved: boolean;
   snapshotDataUrl: string;
   similarityScore?: number;
+  reasoning?: string;
+  masterPhotoUrl?: string;
+  verifiedWithAi?: boolean;
 }
 
 export interface BiometricDescriptor {
@@ -275,6 +278,9 @@ export async function verifyEmployeeFaceBiometric(
               isApproved: true,
               message: `สแกนใบหน้าสำเร็จ: ยืนยันตัวตน คุณ${targetEmployee.name} (${result.reasoning || 'โครงสร้างใบหน้าตรงกับต้นแบบ'})`,
               snapshotDataUrl: snapshotUrl,
+              reasoning: result.reasoning,
+              masterPhotoUrl: targetEmployee.photoUrl,
+              verifiedWithAi: true,
             };
           } else {
             return {
@@ -284,6 +290,9 @@ export async function verifyEmployeeFaceBiometric(
               isApproved: true,
               message: `⚠️ ตรวจไม่ผ่าน: ${result.reasoning || `ใบหน้าหน้ากล้องเป็นคนละคนกับคุณ [${targetEmployee.name}] ไม่อนุญาตให้สแกนแทนกัน!`}`,
               snapshotDataUrl: snapshotUrl,
+              reasoning: result.reasoning,
+              masterPhotoUrl: targetEmployee.photoUrl,
+              verifiedWithAi: true,
             };
           }
         }
