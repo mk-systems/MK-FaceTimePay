@@ -2,7 +2,8 @@
   "name": "MK FaceTimePay - ระบบสแกนหน้าเข้างานและคิดเงินเดือน",
   "description": "ระบบสแกนใบหน้าบันทึกเวลาเข้า-ออกงาน จัดเก็บคุณลักษณะชีวมิติเรขาคณิตใบหน้าเป็นแฮชเข้ารหัส (Encrypted Biometric Hash) ป้องกันการสแกนแทนและคุ้มครองความเป็นส่วนตัวตามมาตรฐาน PDPA พร้อมคำนวณเงินเดือนอัตโนมัติและออกสลิปเงินเดือน",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "geolocation"
   ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

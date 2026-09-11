@@ -28,10 +28,13 @@ import {
   Globe,
   Navigation,
   Fingerprint,
-  Loader2
+  Loader2,
+  Trash2,
+  UserMinus,
+  AlertTriangle
 } from 'lucide-react';
 import { Employee, WageType } from '../types';
-import { addEmployee, updateEmployee, getCompanySettings } from '../lib/storage';
+import { addEmployee, updateEmployee, deleteEmployee, getCompanySettings } from '../lib/storage';
 import { formatCurrency } from '../lib/thaiBahtText';
 import { StrictFaceRegistrationModal } from './StrictFaceRegistrationModal';
 import { BiometricProfileModal } from './BiometricProfileModal';
@@ -63,6 +66,27 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editOriginalId, setEditOriginalId] = useState<string>('');
   const [editSuccessMsg, setEditSuccessMsg] = useState<string | null>(null);
+
+  // Delete Employee (Resignation) State
+  const [deletingEmployee, setDeletingEmployee] = useState<Employee | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteEmployee = (emp: Employee) => {
+    setDeletingEmployee(emp);
+    setDeleteConfirmText('');
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deletingEmployee) return;
+    setIsDeleting(true);
+    deleteEmployee(deletingEmployee.id);
+    if (editingEmployee && editingEmployee.id === deletingEmployee.id) {
+      setEditingEmployee(null);
+    }
+    setIsDeleting(false);
+    setDeletingEmployee(null);
+  };
 
   // Start Camera for capturing Face ID
   const startFaceCamera = async (target: 'new' | 'edit' | Employee) => {
@@ -915,6 +939,17 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
                         <Pencil className="w-3.5 h-3.5" />
                         <span>แก้ไข</span>
                       </button>
+
+                      <button
+                        id={`btn-del-emp-${emp.id}`}
+                        type="button"
+                        onClick={() => handleDeleteEmployee(emp)}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors cursor-pointer"
+                        title="ลบพนักงานออกจากระบบ (กรณีลาออก)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                        <span>ลบ (ลาออก)</span>
+                      </button>
                     </td>
                   </tr>
                 );
@@ -1413,21 +1448,37 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingEmployee(null)}
-                  className="px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                  onClick={() => {
+                    if (editingEmployee) {
+                      handleDeleteEmployee(editingEmployee);
+                    }
+                  }}
+                  className="px-3.5 py-2 border border-rose-200 dark:border-rose-800 bg-rose-50/60 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded-xl font-bold flex items-center space-x-1.5 text-xs cursor-pointer transition-colors"
+                  title="ลบพนักงานท่านนี้ออกจากระบบในกรณีที่ลาออก"
                 >
-                  ยกเลิก
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                  <span>ลบพนักงาน (ลาออก)</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center space-x-1.5 shadow-sm cursor-pointer"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>บันทึกการแก้ไข</span>
-                </button>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingEmployee(null)}
+                    className="px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>บันทึกการแก้ไข</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1539,6 +1590,87 @@ export const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ employee
           setEditSuccessMsg(`ลงทะเบียนใบหน้าชีวมิติมิติรัดกุมสำหรับ คุณ${updatedEmp.name} เรียบร้อยแล้ว`);
         }}
       />
+
+      {/* Delete Employee (Resignation) Confirmation Modal */}
+      {deletingEmployee && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/60 space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 border border-rose-200 dark:border-rose-800">
+                <UserMinus className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                  ยืนยันการลบพนักงาน (กรณีลาออก)
+                </h3>
+                <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                  ลบข้อมูลออกจากระบบบุคลากรที่ปฏิบัติงานอยู่
+                </p>
+              </div>
+            </div>
+
+            {/* Employee Preview Card */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center space-x-3.5">
+              <img
+                src={deletingEmployee.photoUrl}
+                alt={deletingEmployee.name}
+                className="w-14 h-14 rounded-2xl object-cover border-2 border-rose-400 shrink-0"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                  {deletingEmployee.name}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  รหัส {deletingEmployee.id} • {deletingEmployee.department}
+                </div>
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 font-medium mt-0.5">
+                  ตำแหน่ง: {deletingEmployee.position}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+              <div className="font-bold flex items-center space-x-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>คำชี้แจงการลบข้อมูล:</span>
+              </div>
+              <p className="text-[11px] leading-relaxed">
+                การลบพนักงานจะนำรายชื่อและสิทธิ์การสแกนใบหน้าของ <strong>{deletingEmployee.name}</strong> ออกจากระบบแบบเรียลไทม์ และซิงค์ลบจากฐานข้อมูลคลาวด์ทันที
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingEmployee(null)}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 px-4 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                id="btn-confirm-delete-employee"
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 active:scale-95 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-rose-600/20 cursor-pointer transition-all"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>กำลังลบข้อมูล...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>ยืนยันลบพนักงานลาออก</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Biometric Profile Inspector & Lock Modal */}
       <BiometricProfileModal

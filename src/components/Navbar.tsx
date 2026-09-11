@@ -11,18 +11,20 @@ import {
   LogOut,
   Sun,
   Moon,
-  Laptop
+  Laptop,
+  CalendarDays
 } from 'lucide-react';
-import { CompanySettings, Employee } from '../types';
+import { CompanySettings, Employee, LeaveRequest } from '../types';
 import { useTheme } from '../lib/theme';
 
-export type ActiveTab = 'kiosk' | 'attendance' | 'payroll' | 'approval' | 'employees' | 'settings' | 'backup';
+export type ActiveTab = 'kiosk' | 'attendance' | 'payroll' | 'approval' | 'leave' | 'employees' | 'settings' | 'backup';
 
 interface NavbarProps {
   activeTab: ActiveTab;
   onSelectTab: (tab: ActiveTab) => void;
   settings: CompanySettings;
   employees: Employee[];
+  leaveRequests?: LeaveRequest[];
   staffName?: string;
   onLogout?: () => void;
 }
@@ -32,10 +34,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectTab,
   settings,
   employees,
+  leaveRequests = [],
   staffName,
   onLogout,
 }) => {
   const pendingCount = employees.filter(e => e.approvalStatus === 'pending_accountant').length;
+  const pendingLeaveCount = leaveRequests.filter(r => r.status === 'pending').length;
   const { themeMode, effectiveTheme, toggleQuickTheme, setTheme } = useTheme(settings.themeMode || 'light');
 
   return (
@@ -112,6 +116,24 @@ export const Navbar: React.FC<NavbarProps> = ({
               {pendingCount > 0 && (
                 <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white text-[10px] font-bold rounded-full animate-pulse">
                   {pendingCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              id="nav-tab-leave"
+              onClick={() => onSelectTab('leave')}
+              className={`relative flex items-center space-x-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-xs lg:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'leave'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <CalendarDays className="w-4 h-4 shrink-0" />
+              <span>อนุมัติการลา</span>
+              {pendingLeaveCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white text-[10px] font-bold rounded-full animate-pulse">
+                  {pendingLeaveCount}
                 </span>
               )}
             </button>
@@ -244,6 +266,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             {pendingCount > 0 && (
               <span className="px-1.5 py-0.2 bg-amber-500 text-white text-[10px] font-bold rounded-full">
                 {pendingCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => onSelectTab('leave')}
+            className={`px-3 py-2 text-xs font-semibold rounded-xl whitespace-nowrap relative flex items-center space-x-1.5 transition-all shrink-0 cursor-pointer ${
+              activeTab === 'leave' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 active:bg-slate-200'
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+            <span>อนุมัติการลา</span>
+            {pendingLeaveCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-amber-500 text-white text-[10px] font-bold rounded-full">
+                {pendingLeaveCount}
               </span>
             )}
           </button>

@@ -40,6 +40,7 @@ import { CompanySettings, ThemeMode, WorkLocation } from '../types';
 import { initialWorkLocations } from '../data/initialData';
 import { saveCompanySettings } from '../lib/storage';
 import { setStoredThemePreference, applyThemeToDOM, resolveEffectiveTheme } from '../lib/theme';
+import { calculateDistanceMeters } from '../lib/faceDetector';
 
 interface CompanySettingsManagementProps {
   settings: CompanySettings;
@@ -62,9 +63,13 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
     logoUrl: settings.logoUrl || '',
     themeMode: settings.themeMode || 'auto',
     website: settings.website || 'www.dis-thailand.com',
-    enableGpsVerification: settings.enableGpsVerification === true,
+    enableGpsVerification: settings.enableGpsVerification !== false,
+    maxAllowedRadiusMeters: 100,
     workLocations: Array.isArray(settings.workLocations) && settings.workLocations.length > 0
-      ? settings.workLocations
+      ? settings.workLocations.map(loc => ({
+          ...loc,
+          radiusMeters: Math.min(100, loc.radiusMeters || 100)
+        }))
       : initialWorkLocations,
   });
 
@@ -78,12 +83,47 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
     address: '',
     latitude: 13.736717,
     longitude: 100.561081,
-    radiusMeters: 200,
+    radiusMeters: 100,
     isActive: true,
     notes: '',
   });
   const [isGettingGps, setIsGettingGps] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
+
+  // Staff Live GPS Distance Tester State
+  const [staffLiveGps, setStaffLiveGps] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    timestamp: string;
+  } | null>(null);
+  const [isTestingLiveGps, setIsTestingLiveGps] = useState(false);
+  const [testGpsError, setTestGpsError] = useState<string | null>(null);
+
+  const handleTestStaffLiveGps = () => {
+    if (!('geolocation' in navigator)) {
+      setTestGpsError('เบราว์เซอร์หรืออุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง GPS');
+      return;
+    }
+    setIsTestingLiveGps(true);
+    setTestGpsError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setStaffLiveGps({
+          latitude: +pos.coords.latitude.toFixed(6),
+          longitude: +pos.coords.longitude.toFixed(6),
+          accuracy: Math.round(pos.coords.accuracy),
+          timestamp: new Date().toLocaleTimeString('th-TH'),
+        });
+        setIsTestingLiveGps(false);
+      },
+      (err) => {
+        setIsTestingLiveGps(false);
+        setTestGpsError(`ไม่สามารถดึงตำแหน่ง GPS ได้ (${err.message}) กรุณาอนุญาต Location บนเบราว์เซอร์หรืออุปกรณ์`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   const handleOpenAddLocation = () => {
     setEditingLocationId(null);
@@ -92,7 +132,7 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
       address: '',
       latitude: 13.736717,
       longitude: 100.561081,
-      radiusMeters: 200,
+      radiusMeters: 100,
       isActive: true,
       notes: '',
     });
@@ -107,7 +147,7 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
       address: loc.address || '',
       latitude: loc.latitude,
       longitude: loc.longitude,
-      radiusMeters: loc.radiusMeters,
+      radiusMeters: Math.min(100, loc.radiusMeters || 100),
       isActive: loc.isActive,
       notes: loc.notes || '',
     });
@@ -147,18 +187,23 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
     }
 
     const currentLocs = formData.workLocations || [];
+    const sanitizedRadius = Math.min(100, Math.max(10, locationForm.radiusMeters || 100));
+    const sanitizedForm = {
+      ...locationForm,
+      radiusMeters: sanitizedRadius,
+    };
 
     if (editingLocationId) {
       const updated = currentLocs.map((loc) =>
         loc.id === editingLocationId
-          ? { ...loc, ...locationForm }
+          ? { ...loc, ...sanitizedForm }
           : loc
       );
       setFormData((prev) => ({ ...prev, workLocations: updated }));
     } else {
       const newLoc: WorkLocation = {
         id: `LOC-${Date.now().toString().slice(-4)}`,
-        ...locationForm,
+        ...sanitizedForm,
       };
       setFormData((prev) => ({ ...prev, workLocations: [...currentLocs, newLoc] }));
     }
@@ -896,8 +941,8 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
             </div>
           </div>
 
-          {/* Section 6: จัดการสถานที่ปฏิบัติงาน & พิกัดตรวจสอบ GPS (Work Locations & Geofencing) */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs p-6 transition-colors space-y-4">
+          {/* Section 6: จัดการสถานที่ปฏิบัติงาน & ระบบล็อคพิกัด GPS รัศมีไม่เกิน 100 เมตร */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs p-6 transition-colors space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
               <div className="flex items-center space-x-2.5">
                 <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
@@ -905,13 +950,13 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-2">
-                    <span>6. จัดการสถานที่ปฏิบัติงาน & จุดตรวจสอบพิกัด GPS</span>
+                    <span>6. จัดการสถานที่ปฏิบัติงาน & ระบบล็อคพิกัด GPS</span>
                     <span className="text-[10px] bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-sans px-2 py-0.5 rounded-full font-bold">
-                      Multi-Location & Geofencing
+                      ล็อครัศมีไม่เกิน 100 เมตร
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    เพิ่ม/ลด/แก้ไข สาขา, ไซต์งาน หรือคลังสินค้า เพื่อให้พนักงานสแกนหน้าเฉพาะในพื้นที่ที่ได้รับอนุญาต
+                    กำหนดพิกัดสถานที่ปฏิบัติงานจริง ล็อครัศมีการสแกนหน้าบันทึกเวลาเข้า-ออกงานให้อยู่ในพื้นที่ไม่เกิน 100 เมตร
                   </p>
                 </div>
               </div>
@@ -926,7 +971,7 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
               </button>
             </div>
 
-            {/* Master GPS Toggle Card */}
+            {/* Master GPS 100m Lock Toggle Card */}
             <div
               className={`p-4 rounded-2xl border transition-all ${
                 formData.enableGpsVerification
@@ -935,12 +980,12 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
               }`}
             >
               <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <div className="flex items-center space-x-2">
                     <span className="font-black text-xs text-slate-900 dark:text-white">
                       {formData.enableGpsVerification
-                        ? '✓ ระบบเปิดใช้งานการตรวจสอบพิกัด GPS บนมือถือ'
-                        : '✕ ปิดการบังคับพิกัด GPS (สแกนได้จากทุกที่ / สะดวกสูงสุด)'}
+                        ? '✓ เปิดระบบล็อคพิกัด GPS รัศมีไม่เกิน 100 เมตร (Strict 100m Geofencing)'
+                        : '✕ ปิดการบังคับพิกัด GPS (สแกนได้จากทุกที่ / บันทึกพิกัดเพื่อตรวจสอบย้อนหลัง)'}
                     </span>
                     <span
                       className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
@@ -949,13 +994,13 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
                           : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                       }`}
                     >
-                      {formData.enableGpsVerification ? 'เปิด Geofence' : 'ปิดตรวจพิกัด'}
+                      {formData.enableGpsVerification ? 'ล็อค 100 เมตร' : 'ปิดล็อคพิกัด'}
                     </span>
                   </div>
                   <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
                     {formData.enableGpsVerification
-                      ? 'เมื่อพนักงานสแกนหน้าผ่านมือถือส่วนตัว ระบบจะอ่านพิกัด GPS และเทียบกับสถานที่ที่พนักงานได้รับสิทธิ์ หากอยู่นอกรัศมีจะปฏิเสธการลงเวลาเพื่อป้องกันการเช็คอินจากที่บ้าน'
-                      : 'พนักงานสามารถสแกนหน้าลงเวลาได้ทุกที่โดยไม่ถูกบล็อกด้วยพิกัด GPS แต่ระบบจะยังคงบันทึกพิกัดจริงและรูปถ่ายไว้ในระบบตรวจสอบย้อนหลัง'}
+                      ? 'เมื่อพนักงานสแกนหน้าผ่านมือถือหรืออุปกรณ์ ระบบจะดึงพิกัด GPS จริงจากดาวเทียม และคำนวณระยะห่าง หากอยู่นอกรัศมี 100 เมตรจากสถานที่ปฏิบัติงานที่เจ้าหน้าที่กำหนดไว้ ระบบจะล็อคการสแกนทันทีเพื่อป้องกันการเช็คอินจากที่บ้าน'
+                      : 'พนักงานสามารถสแกนหน้าลงเวลาได้โดยไม่ถูกบล็อกด้วยระยะทาง แต่ระบบจะยังคงบันทึกพิกัด GPS จริงขณะสแกนไว้ในประวัติ'}
                   </p>
                 </div>
 
@@ -974,12 +1019,107 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
               </div>
             </div>
 
+            {/* Interactive Staff Live GPS Distance Tester */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900 dark:text-white flex items-center space-x-1.5">
+                    <Compass className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>เครื่องมือทดสอบวัดระยะพิกัดจริงของเจ้าหน้าที่ (GPS Live Tester)</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    กดเพื่อตรวจสอบระยะห่างระหว่างจุดที่คุณยืนอยู่ขณะนี้ กับพิกัดสถานที่ปฏิบัติงานที่กำหนดไว้
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestStaffLiveGps}
+                  disabled={isTestingLiveGps}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer shrink-0 shadow-2xs"
+                >
+                  <LocateFixed className={`w-3.5 h-3.5 ${isTestingLiveGps ? 'animate-spin' : ''}`} />
+                  <span>{isTestingLiveGps ? 'กำลังอ่านพิกัดดาวเทียม...' : '🛰️ ทดสอบวัดระยะจากตำแหน่งปัจจุบัน'}</span>
+                </button>
+              </div>
+
+              {testGpsError && (
+                <div className="p-2.5 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900/50 rounded-xl text-[11px] text-red-600 dark:text-red-400 flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{testGpsError}</span>
+                </div>
+              )}
+
+              {staffLiveGps && (
+                <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5 animate-in fade-in">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] border-b border-slate-100 dark:border-slate-800 pb-2">
+                    <span className="text-slate-600 dark:text-slate-400">
+                      📍 ตำแหน่งของคุณ: <strong className="text-slate-900 dark:text-white font-mono">{staffLiveGps.latitude}, {staffLiveGps.longitude}</strong> (ความคลาดเคลื่อน ±{staffLiveGps.accuracy} ม.)
+                    </span>
+                    <span className="text-slate-400 font-mono text-[10px]">
+                      เวลาที่อ่าน: {staffLiveGps.timestamp} น.
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
+                      ผลการวัดระยะห่างเทียบกับแต่ละสถานที่ (เกณฑ์ล็อคไม่เกิน 100 เมตร):
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {(formData.workLocations || []).filter(l => l.isActive).map((loc) => {
+                        const dist = calculateDistanceMeters(
+                          staffLiveGps.latitude,
+                          staffLiveGps.longitude,
+                          loc.latitude,
+                          loc.longitude
+                        );
+                        const effectiveRadius = Math.min(100, loc.radiusMeters || 100);
+                        const inRange = dist <= effectiveRadius;
+
+                        return (
+                          <div
+                            key={loc.id}
+                            className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between space-y-1.5 ${
+                              inRange
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+                                : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-900 dark:text-white truncate max-w-[130px]">
+                                {loc.name}
+                              </span>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                                  inRange
+                                    ? 'bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200'
+                                    : 'bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200'
+                                }`}
+                              >
+                                {inRange ? '🟢 ผ่าน (<=100ม.)' : '🔴 เกิน 100 ม.'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-600 dark:text-slate-400">ระยะห่างจริง:</span>
+                              <strong className={`font-mono ${inRange ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-400'}`}>
+                                {dist} เมตร
+                              </strong>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* List of Locations */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>รายการสาขาและสถานที่ปฏิบัติงานทั้งหมด ({(formData.workLocations || []).length} แห่ง)</span>
+                <span>รายการสถานที่ปฏิบัติงานที่กำหนดไว้ ({(formData.workLocations || []).length} แห่ง)</span>
                 <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                  เปิดใช้งาน {(formData.workLocations || []).filter(l => l.isActive).length} แห่ง
+                  เปิดใช้งาน {(formData.workLocations || []).filter(l => l.isActive).length} แห่ง (ล็อครัศมีสูงสุด 100 ม.)
                 </span>
               </div>
 
@@ -1037,12 +1177,12 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
                         <div className="pt-1 flex flex-wrap items-center gap-2 text-[10px]">
                           <span className="inline-flex items-center text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/60 px-2 py-0.5 rounded-md font-mono">
                             <LocateFixed className="w-3 h-3 mr-1 text-blue-500" />
-                            {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                            {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
                           </span>
 
                           <span className="inline-flex items-center text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md font-semibold">
                             <Compass className="w-3 h-3 mr-1 text-indigo-500" />
-                            รัศมี {loc.radiusMeters} ม.
+                            รัศมี {Math.min(100, loc.radiusMeters || 100)} ม. (ล็อคไม่เกิน 100ม.)
                           </span>
 
                           <a
@@ -1338,46 +1478,52 @@ export const CompanySettingsManagement: React.FC<CompanySettingsManagementProps>
                 </div>
               </div>
 
-              {/* Radius */}
+              {/* Radius with 100m strict limit */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    รัศมีที่อนุญาตให้สแกนหน้าได้: <span className="text-blue-600 dark:text-blue-400">{locationForm.radiusMeters} เมตร</span>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+                    <span>รัศมีที่อนุญาตให้สแกนหน้าได้:</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-black">{Math.min(100, locationForm.radiusMeters)} เมตร</span>
                   </label>
-                  <span className="text-[10px] text-slate-400">
-                    (แนะนำ 100 - 300 เมตร สำหรับอาคาร)
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-full">
+                    🔒 ล็อคสูงสุดไม่เกิน 100 เมตร
                   </span>
                 </div>
 
                 {/* Preset Chips */}
                 <div className="flex flex-wrap gap-1.5 mb-2.5">
-                  {[50, 100, 200, 300, 500, 1000].map((r) => (
+                  {[20, 50, 75, 100].map((r) => (
                     <button
                       key={r}
                       type="button"
                       onClick={() => setLocationForm({ ...locationForm, radiusMeters: r })}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                        locationForm.radiusMeters === r
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                        Math.min(100, locationForm.radiusMeters) === r
                           ? 'bg-blue-600 text-white shadow-2xs'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
                       }`}
                     >
-                      {r} ม.{r === 200 ? ' (แนะนำ)' : ''}
+                      {r} ม.{r === 100 ? ' (สูงสุดตามเกณฑ์ 100ม.)' : ''}
                     </button>
                   ))}
                 </div>
 
                 <input
                   type="range"
-                  min="30"
-                  max="2000"
-                  step="10"
-                  value={locationForm.radiusMeters}
+                  min="10"
+                  max="100"
+                  step="5"
+                  value={Math.min(100, locationForm.radiusMeters)}
                   onChange={(e) =>
-                    setLocationForm({ ...locationForm, radiusMeters: parseInt(e.target.value, 10) || 100 })
+                    setLocationForm({ ...locationForm, radiusMeters: Math.min(100, parseInt(e.target.value, 10) || 100) })
                   }
                   className="w-full accent-blue-600 cursor-pointer"
                 />
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-mono">
+                  <span>10 ม. (เฉพาะจุด)</span>
+                  <span>50 ม. (ในอาคาร)</span>
+                  <span className="text-blue-600 dark:text-blue-400 font-bold">100 ม. (ล็อคสูงสุด)</span>
+                </div>
               </div>
 
               {/* Active Toggle */}

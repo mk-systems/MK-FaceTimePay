@@ -1,4 +1,4 @@
-import { Employee, AttendanceLog, CompanySettings, WorkLocation } from '../types';
+import { Employee, AttendanceLog, CompanySettings, WorkLocation, LeaveRequest } from '../types';
 
 export const initialWorkLocations: WorkLocation[] = [
   {
@@ -7,9 +7,9 @@ export const initialWorkLocations: WorkLocation[] = [
     address: '888 อาคารอินโนเวชั่น ทาวเวอร์ ชั้น 18 ถ.สุขุมวิท คลองเตย กทม.',
     latitude: 13.736717,
     longitude: 100.561081,
-    radiusMeters: 200,
+    radiusMeters: 100,
     isActive: true,
-    notes: 'สำนักงานใหญ่ ชั้น 18-20',
+    notes: 'สำนักงานใหญ่ ล็อครัศมี 100 เมตรจากจุดพิกัดจริง',
   },
   {
     id: 'LOC-02',
@@ -17,9 +17,9 @@ export const initialWorkLocations: WorkLocation[] = [
     address: '9 อาคาร จี ทาวเวอร์ แกรนด์ พระราม 9 ห้วยขวาง กทม.',
     latitude: 13.755482,
     longitude: 100.568412,
-    radiusMeters: 250,
+    radiusMeters: 100,
     isActive: true,
-    notes: 'ศูนย์บริการลูกค้าและฝ่ายขาย สาขา 2',
+    notes: 'ศูนย์บริการลูกค้าและฝ่ายขาย สาขา 2 ล็อครัศมี 100 เมตร',
   },
   {
     id: 'LOC-03',
@@ -27,9 +27,9 @@ export const initialWorkLocations: WorkLocation[] = [
     address: 'กม. 18 ถ.บางนา-ตราด ต.บางโฉลง อ.บางพลี จ.สมุทรปราการ',
     latitude: 13.626490,
     longitude: 100.702580,
-    radiusMeters: 400,
+    radiusMeters: 100,
     isActive: true,
-    notes: 'คลังเก็บสินค้าและฝ่ายจัดส่ง Logistics',
+    notes: 'คลังเก็บสินค้าและฝ่ายจัดส่ง Logistics ล็อครัศมี 100 เมตร',
   },
 ];
 
@@ -53,10 +53,10 @@ export const initialCompanySettings: CompanySettings = {
   enableLogo: false,         // ค่าเริ่มต้นปิดโลโก้ (สำหรับบริษัทที่ไม่มีหรือไม่ต้องการใส่รูป)
   logoUrl: '',
   themeMode: 'auto',         // โหมดธีมการแสดงผลเริ่มต้นอัตโนมัติตามเวลา (18:00 - 06:00 น. = มืด, 06:00 - 18:00 น. = สว่าง)
-  enableGpsVerification: false, // สามารถเปิดได้ในเมนูตั้งค่าบริษัท (ค่าเริ่มต้นไม่บังคับ เพื่อความสะดวก)
+  enableGpsVerification: true, // เปิดใช้งานระบบล็อคพิกัด GPS รัศมีไม่เกิน 100 เมตร
   officeLatitude: 13.736717,    // พิกัดออฟฟิศตัวอย่าง (สุขุมวิท กรุงเทพฯ)
   officeLongitude: 100.561081,
-  maxAllowedRadiusMeters: 200,  // รัศมี 200 เมตร
+  maxAllowedRadiusMeters: 100,  // รัศมีล็อคไม่เกิน 100 เมตร
   workLocations: initialWorkLocations, // รายการสถานที่ปฏิบัติงาน / สาขา / ไซต์งาน (เพิ่ม/ลดได้ไม่จำกัด)
 };
 
@@ -316,3 +316,52 @@ export function generateSeedAttendanceLogs(employees: Employee[]): AttendanceLog
 
   return logs;
 }
+
+export const initialLeaveRequests: LeaveRequest[] = [
+  {
+    id: 'LEAVE-REQ-001',
+    employeeId: 'EMP-1002',
+    employeeName: 'น.ส. วิภาดา เจริญสุข',
+    department: 'ฝ่ายบัญชีและการเงิน',
+    leaveType: 'annual_leave',
+    leaveTypeName: 'ลาพักร้อน (Annual Leave)',
+    startDate: '2026-09-15',
+    endDate: '2026-09-16',
+    daysCount: 2,
+    reason: 'ขอลาพักร้อนประจำปีเพื่อเดินทางไปทำธุระครอบครัวต่างจังหวัด',
+    status: 'pending',
+    createdAt: '2026-09-08T09:30:00.000Z',
+  },
+  {
+    id: 'LEAVE-REQ-002',
+    employeeId: 'EMP-1003',
+    employeeName: 'นายณัฐพล ศรีวิชัย',
+    department: 'ฝ่ายการตลาดและการขาย',
+    leaveType: 'sick_leave',
+    leaveTypeName: 'ลาป่วย (Sick Leave)',
+    startDate: '2026-09-05',
+    endDate: '2026-09-05',
+    daysCount: 1,
+    reason: 'มีอาการไข้หวัด ปวดศีรษะ พบแพทย์และพักผ่อนตามคำสั่งแพทย์',
+    status: 'approved',
+    createdAt: '2026-09-05T07:15:00.000Z',
+    reviewedBy: 'แอดมินฝ่ายบุคคล (HR Admin)',
+    reviewedAt: '2026-09-05T08:00:00.000Z',
+    reviewNotes: 'อนุมัติการลาป่วย พักผ่อนให้หายไวๆ ครับ',
+  },
+  {
+    id: 'LEAVE-REQ-003',
+    employeeId: 'EMP-1001',
+    employeeName: 'นายสมชาย สุขสมบูรณ์',
+    department: 'ฝ่ายพัฒนาระบบ (Software Eng.)',
+    leaveType: 'holiday_swap',
+    leaveTypeName: 'ขอหยุด / สลับวันหยุด (Day Off)',
+    startDate: '2026-09-22',
+    endDate: '2026-09-22',
+    daysCount: 1,
+    reason: 'ขอหยุดชดเชยเนื่องจากมาปฏิบัติงานดูแลเซิร์ฟเวอร์ในวันเสาร์',
+    status: 'pending',
+    createdAt: '2026-09-09T14:20:00.000Z',
+  }
+];
+

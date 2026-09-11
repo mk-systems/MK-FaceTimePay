@@ -175,6 +175,35 @@ export interface MonthlyPayrollSummary {
 
 export type ThemeMode = 'auto' | 'light' | 'dark' | 'system';
 
+export type LeaveType = 
+  | 'sick_leave'       // ลาป่วย
+  | 'annual_leave'     // ลาพักร้อน
+  | 'personal_leave'   // ลากิจ
+  | 'holiday_swap'     // ขอหยุด / สลับวันหยุด
+  | 'unpaid_leave'     // ลาไม่รับค่าจ้าง
+  | 'other';           // อื่นๆ
+
+export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface LeaveRequest {
+  id: string;               // e.g. "LEAVE-1725900000000"
+  employeeId: string;       // e.g. "EMP-1001"
+  employeeName: string;
+  department: string;
+  leaveType: LeaveType;
+  leaveTypeName: string;    // e.g. "ลาป่วย (Sick Leave)"
+  startDate: string;        // YYYY-MM-DD
+  endDate: string;          // YYYY-MM-DD
+  daysCount: number;        // e.g. 1 หรือ 0.5 หรือ 3
+  reason: string;           // เหตุผลการลา
+  attachmentUrl?: string;   // เอกสารแนบ เช่น ใบรับรองแพทย์ (Base64 หรือ URL)
+  status: LeaveStatus;      // 'pending' | 'approved' | 'rejected' | 'cancelled'
+  createdAt: string;        // ISO string
+  reviewedBy?: string;      // ชื่อแอดมินหรือหัวหน้างานที่อนุมัติ/ปฏิเสธ
+  reviewedAt?: string;      // วันเวลาที่อนุมัติ
+  reviewNotes?: string;     // ข้อความหรือหมายเหตุจากผู้อนุมัติ
+}
+
 export interface WorkLocation {
   id: string;
   name: string;             // เช่น "สำนักงานใหญ่ (สุขุมวิท)", "สาขาพระราม 9", "ไซต์งานบางนา"

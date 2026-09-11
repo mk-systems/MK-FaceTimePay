@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Employee, AttendanceLog, CompanySettings, MonthlyPayrollSummary, AuthSession } from './types';
+import { Employee, AttendanceLog, CompanySettings, MonthlyPayrollSummary, AuthSession, LeaveRequest } from './types';
 import { 
   getEmployees, 
   getAttendanceLogs, 
   getCompanySettings, 
+  getLeaveRequests,
   subscribeToRealtimeUpdates,
   calculateMonthlyPayroll,
   getAuthSession,
@@ -16,6 +17,7 @@ import { FaceScanKiosk } from './components/FaceScanKiosk';
 import { RealtimeAttendanceView } from './components/RealtimeAttendanceView';
 import { PayrollDashboard } from './components/PayrollDashboard';
 import { AccountantApprovalPanel } from './components/AccountantApprovalPanel';
+import { LeaveApprovalPanel } from './components/LeaveApprovalPanel';
 import { EmployeeManagement } from './components/EmployeeManagement';
 import { CompanySettingsManagement } from './components/CompanySettingsManagement';
 import { DriveBackupTab } from './components/DriveBackupTab';
@@ -29,6 +31,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('kiosk');
   const [employees, setEmployees] = useState<Employee[]>(() => getEmployees());
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>(() => getAttendanceLogs());
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(() => getLeaveRequests());
   const [settings, setSettings] = useState<CompanySettings>(() => getCompanySettings());
   const [globalExportSummary, setGlobalExportSummary] = useState<MonthlyPayrollSummary | null>(null);
 
@@ -40,6 +43,7 @@ export default function App() {
     initFirebaseSync();
     setEmployees(getEmployees());
     setAttendanceLogs(getAttendanceLogs());
+    setLeaveRequests(getLeaveRequests());
     setSettings(getCompanySettings());
 
     const unsubscribe = subscribeToRealtimeUpdates((event) => {
@@ -54,10 +58,16 @@ export default function App() {
           }
           return [event.payload, ...prev];
         });
-      } else if (event.type === 'EMPLOYEE_UPDATED') {
+      } else if (event.type === 'EMPLOYEE_UPDATED' || event.type === 'EMPLOYEE_DELETED') {
         setEmployees(getEmployees());
       } else if (event.type === 'EMPLOYEE_APPROVED') {
         setEmployees(getEmployees());
+      } else if (
+        event.type === 'LEAVE_REQUEST_SUBMITTED' ||
+        event.type === 'LEAVE_REQUEST_UPDATED' ||
+        event.type === 'LEAVE_REQUEST_DELETED'
+      ) {
+        setLeaveRequests(getLeaveRequests());
       } else if (event.type === 'SETTINGS_UPDATED') {
         setSettings(event.payload);
       }
@@ -69,6 +79,7 @@ export default function App() {
   const refreshData = () => {
     setEmployees(getEmployees());
     setAttendanceLogs(getAttendanceLogs());
+    setLeaveRequests(getLeaveRequests());
     setSettings(getCompanySettings());
   };
 
@@ -122,6 +133,7 @@ export default function App() {
         onSelectTab={setActiveTab}
         settings={settings}
         employees={employees}
+        leaveRequests={leaveRequests}
         staffName={authSession.staffName}
         onLogout={handleLogout}
       />
@@ -154,6 +166,16 @@ export default function App() {
             employees={employees}
             settings={settings}
             onEmployeeApproved={refreshData}
+          />
+        )}
+
+        {activeTab === 'leave' && (
+          <LeaveApprovalPanel
+            leaveRequests={leaveRequests}
+            employees={employees}
+            settings={settings}
+            staffName={authSession.staffName}
+            onRefresh={refreshData}
           />
         )}
 

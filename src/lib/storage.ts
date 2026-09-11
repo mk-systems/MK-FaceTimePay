@@ -1,5 +1,5 @@
-import { Employee, AttendanceLog, MonthlyPayrollSummary, CompanySettings, PayrollRecord, AuthSession } from '../types';
-import { initialCompanySettings, initialEmployees, generateSeedAttendanceLogs, initialWorkLocations } from '../data/initialData';
+import { Employee, AttendanceLog, MonthlyPayrollSummary, CompanySettings, PayrollRecord, AuthSession, LeaveRequest, LeaveType, LeaveStatus } from '../types';
+import { initialCompanySettings, initialEmployees, generateSeedAttendanceLogs, initialWorkLocations, initialLeaveRequests } from '../data/initialData';
 import { numberToThaiBahtText } from './thaiBahtText';
 import { 
   sanitizeEmployeeForSecureStorage, 
@@ -10,13 +10,17 @@ import {
 import { 
   saveCompanySettingsToFirestore, 
   saveEmployeeToFirestore, 
+  deleteEmployeeFromFirestore,
   saveEmployeesBatchToFirestore, 
   saveAttendanceLogToFirestore, 
   savePayrollSummaryToFirestore,
   syncCompanySettingsFromFirestore,
   syncEmployeesFromFirestore,
   syncAttendanceLogsFromFirestore,
-  syncPayrollFromFirestore
+  syncPayrollFromFirestore,
+  syncLeaveRequestsFromFirestore,
+  saveLeaveRequestToFirestore,
+  deleteLeaveRequestFromFirestore
 } from './firebase';
 
 const STORAGE_KEYS = {
@@ -25,6 +29,7 @@ const STORAGE_KEYS = {
   PAYROLL: 'ftp_payroll_summaries_v1',
   SETTINGS: 'ftp_company_settings_v1',
   AUTH_SESSION: 'ftp_auth_session_v1',
+  LEAVE_REQUESTS: 'ftp_leave_requests_v1',
 };
 
 // Real-time synchronization channel for cross-tab or kiosk-to-dashboard instant updates
@@ -35,9 +40,13 @@ const broadcastChannel = typeof window !== 'undefined' && 'BroadcastChannel' in 
 export type RealtimeEvent = 
   | { type: 'ATTENDANCE_LOGGED'; payload: AttendanceLog }
   | { type: 'EMPLOYEE_UPDATED'; payload: Employee }
+  | { type: 'EMPLOYEE_DELETED'; payload: { employeeId: string } }
   | { type: 'EMPLOYEE_APPROVED'; payload: { employeeId: string; approvedBy: string } }
   | { type: 'PAYROLL_GENERATED'; payload: MonthlyPayrollSummary }
-  | { type: 'SETTINGS_UPDATED'; payload: CompanySettings };
+  | { type: 'SETTINGS_UPDATED'; payload: CompanySettings }
+  | { type: 'LEAVE_REQUEST_SUBMITTED'; payload: LeaveRequest }
+  | { type: 'LEAVE_REQUEST_UPDATED'; payload: LeaveRequest }
+  | { type: 'LEAVE_REQUEST_DELETED'; payload: { requestId: string } };
 
 const listeners = new Set<(event: RealtimeEvent) => void>();
 
@@ -54,9 +63,9 @@ export function initFirebaseSync() {
 
   syncEmployeesFromFirestore((employees) => {
     localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
-    employees.forEach(emp => {
-      listeners.forEach(cb => cb({ type: 'EMPLOYEE_UPDATED', payload: emp }));
-    });
+    if (employees.length > 0) {
+      listeners.forEach(cb => cb({ type: 'EMPLOYEE_UPDATED', payload: employees[0] }));
+    }
   });
 
   syncAttendanceLogsFromFirestore((logs) => {
@@ -68,9 +77,17 @@ export function initFirebaseSync() {
 
   syncPayrollFromFirestore((summaries) => {
     localStorage.setItem(STORAGE_KEYS.PAYROLL, JSON.stringify(summaries));
-    Object.values(summaries).forEach(summary => {
-      listeners.forEach(cb => cb({ type: 'PAYROLL_GENERATED', payload: summary }));
-    });
+    const firstSummary = Object.values(summaries)[0];
+    if (firstSummary) {
+      listeners.forEach(cb => cb({ type: 'PAYROLL_GENERATED', payload: firstSummary }));
+    }
+  });
+
+  syncLeaveRequestsFromFirestore((requests) => {
+    localStorage.setItem(STORAGE_KEYS.LEAVE_REQUESTS, JSON.stringify(requests));
+    if (requests.length > 0) {
+      listeners.forEach(cb => cb({ type: 'LEAVE_REQUEST_UPDATED', payload: requests[0] }));
+    }
   });
 }
 
@@ -223,21 +240,11 @@ export function getEmployees(): Employee[] {
 }
 
 /**
- * Saves employees to localStorage and Firestore.
- * Automatically encrypts biometric descriptors using AES-GCM and SHA-256,
- * stripping raw camera snapshots to protect employee privacy under PDPA/GDPR.
+ * Saves employees to localStorage.
+ * Individual employee mutations (add/update/delete) handle their own specific Firestore writes.
  */
 export function saveEmployees(employees: Employee[]): void {
   localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
-  
-  // Asynchronously sanitize and persist encrypted descriptors to both local storage & Firestore
-  Promise.all(employees.map(emp => sanitizeEmployeeForSecureStorage(emp))).then(sanitized => {
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(sanitized));
-    saveEmployeesBatchToFirestore(sanitized);
-  }).catch(err => {
-    console.warn('Error sanitizing employee biometrics for storage:', err);
-    saveEmployeesBatchToFirestore(employees);
-  });
 }
 
 export function addEmployee(employee: Employee): void {
@@ -270,6 +277,7 @@ export function updateEmployee(updatedEmp: Employee, oldId?: string): void {
 
     // If employee ID was modified, propagate ID to historical attendance logs and active auth session
     if (oldId && oldId !== updatedEmp.id) {
+      deleteEmployeeFromFirestore(oldId);
       const logs = getAttendanceLogs();
       const updatedLogs = logs.map(l => {
         if (l.employeeId === oldId) {
@@ -326,6 +334,22 @@ export function rejectEmployeeByAccountant(employeeId: string, reason: string): 
   broadcastEvent({
     type: 'EMPLOYEE_UPDATED',
     payload: emp,
+  });
+  return true;
+}
+
+export function deleteEmployee(employeeId: string): boolean {
+  const current = getEmployees();
+  const index = current.findIndex(e => e.id === employeeId);
+  if (index === -1) return false;
+
+  current.splice(index, 1);
+  saveEmployees(current);
+  deleteEmployeeFromFirestore(employeeId);
+
+  broadcastEvent({
+    type: 'EMPLOYEE_DELETED',
+    payload: { employeeId },
   });
   return true;
 }
@@ -583,3 +607,145 @@ export function markPayslipEmailSent(periodMonth: string, employeeId: string): v
     }
   }
 }
+
+// ==========================================
+// 6. Leave Requests (คำขอลา / ขอหยุดงาน)
+// ==========================================
+
+export function getLeaveRequests(): LeaveRequest[] {
+  const saved = localStorage.getItem(STORAGE_KEYS.LEAVE_REQUESTS);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+  }
+  // Initialize with seed data if none exists
+  localStorage.setItem(STORAGE_KEYS.LEAVE_REQUESTS, JSON.stringify(initialLeaveRequests));
+  return initialLeaveRequests;
+}
+
+export function saveLeaveRequests(requests: LeaveRequest[]): void {
+  localStorage.setItem(STORAGE_KEYS.LEAVE_REQUESTS, JSON.stringify(requests));
+}
+
+export function submitLeaveRequest(input: {
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  leaveType: LeaveType;
+  leaveTypeName: string;
+  startDate: string;
+  endDate: string;
+  daysCount: number;
+  reason: string;
+  attachmentUrl?: string;
+  id?: string;
+  status?: LeaveStatus;
+  createdAt?: string;
+}): LeaveRequest {
+  const newRequest: LeaveRequest = {
+    id: input.id || `LEAVE-${Date.now()}`,
+    employeeId: input.employeeId,
+    employeeName: input.employeeName,
+    department: input.department,
+    leaveType: input.leaveType,
+    leaveTypeName: input.leaveTypeName,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    daysCount: input.daysCount,
+    reason: input.reason,
+    attachmentUrl: input.attachmentUrl,
+    status: input.status || 'pending',
+    createdAt: input.createdAt || new Date().toISOString()
+  };
+
+  const requests = getLeaveRequests();
+  // Add newest at front
+  requests.unshift(newRequest);
+  saveLeaveRequests(requests);
+  saveLeaveRequestToFirestore(newRequest);
+
+  broadcastEvent({
+    type: 'LEAVE_REQUEST_SUBMITTED',
+    payload: newRequest,
+  });
+
+  return newRequest;
+}
+
+export function approveLeaveRequest(requestId: string, reviewerName: string, reviewNotes?: string): boolean {
+  const requests = getLeaveRequests();
+  const req = requests.find(r => r.id === requestId);
+  if (!req) return false;
+
+  req.status = 'approved';
+  req.reviewedBy = reviewerName;
+  req.reviewedAt = new Date().toISOString();
+  if (reviewNotes !== undefined) {
+    req.reviewNotes = reviewNotes;
+  }
+
+  saveLeaveRequests(requests);
+  saveLeaveRequestToFirestore(req);
+
+  broadcastEvent({
+    type: 'LEAVE_REQUEST_UPDATED',
+    payload: req,
+  });
+  return true;
+}
+
+export function rejectLeaveRequest(requestId: string, reviewerName: string, reason: string): boolean {
+  const requests = getLeaveRequests();
+  const req = requests.find(r => r.id === requestId);
+  if (!req) return false;
+
+  req.status = 'rejected';
+  req.reviewedBy = reviewerName;
+  req.reviewedAt = new Date().toISOString();
+  req.reviewNotes = reason;
+
+  saveLeaveRequests(requests);
+  saveLeaveRequestToFirestore(req);
+
+  broadcastEvent({
+    type: 'LEAVE_REQUEST_UPDATED',
+    payload: req,
+  });
+  return true;
+}
+
+export function cancelLeaveRequest(requestId: string): boolean {
+  const requests = getLeaveRequests();
+  const req = requests.find(r => r.id === requestId);
+  if (!req) return false;
+
+  req.status = 'cancelled';
+  saveLeaveRequests(requests);
+  saveLeaveRequestToFirestore(req);
+
+  broadcastEvent({
+    type: 'LEAVE_REQUEST_UPDATED',
+    payload: req,
+  });
+  return true;
+}
+
+export function deleteLeaveRequest(requestId: string): boolean {
+  const requests = getLeaveRequests();
+  const index = requests.findIndex(r => r.id === requestId);
+  if (index === -1) return false;
+
+  requests.splice(index, 1);
+  saveLeaveRequests(requests);
+  deleteLeaveRequestFromFirestore(requestId);
+
+  broadcastEvent({
+    type: 'LEAVE_REQUEST_DELETED',
+    payload: { requestId },
+  });
+  return true;
+}
+
